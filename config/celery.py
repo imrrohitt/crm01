@@ -1,7 +1,9 @@
 """
 Celery application instance and configuration.
-Rails equivalent: config/application.rb (ActiveJob backend) + Sidekiq.
 """
+
+import os
+import pkgutil
 
 from celery import Celery
 from celery.schedules import crontab
@@ -10,11 +12,22 @@ from config.settings import get_settings, CELERY_BEAT_SCHEDULE
 
 settings = get_settings()
 
+
+def _discover_job_modules() -> list[str]:
+    """Import every module in app/jobs so the worker registers its tasks."""
+    jobs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "jobs")
+    return [
+        f"app.jobs.{m.name}"
+        for m in pkgutil.iter_modules([jobs_dir])
+        if m.name != "base_job"
+    ]
+
+
 celery_app = Celery(
     "myapp",
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
-    include=[],  # Add your job modules: e.g. "app.jobs.my_job"
+    include=_discover_job_modules(),  # every module in app/jobs is auto-registered
 )
 
 celery_app.conf.update(

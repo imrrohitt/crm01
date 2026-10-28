@@ -1,6 +1,5 @@
 """
 Sluggable concern: slug column and auto-generation from a field.
-Rails equivalent: friendly_id / babosa
 """
 
 import re

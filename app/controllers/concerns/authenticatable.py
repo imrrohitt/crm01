@@ -1,6 +1,5 @@
 """
 Authenticatable concern: authenticate_user, require_admin, require_owner.
-Rails equivalent: before_action :authenticate_user! + current_user
 Works with request.state.current_user as dict (JWT payload) or model instance.
 """
 

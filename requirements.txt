@@ -1,4 +1,4 @@
-# FastAPI Rails-style Boilerplate - Production Dependencies
+# FastAPI Boilerplate - Production Dependencies
 # Python 3.11+
 
 # Web framework

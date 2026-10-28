@@ -1,13 +1,13 @@
-# Rails-style FastAPI Framework
+# FastAPI Framework
 
-A **clean, production-ready framework** that brings Ruby on Rails conventions to Python: centralized config, ActiveRecord-style models, controller filters, services, background jobs, and a full CLI — **no demo app**, just the stack you need to build on.
+A **clean, production-ready framework** with a convention-based layout: centralized config, models, controller filters, services, background jobs, and a full CLI — **no demo app**, just the stack you need to build on.
 
 ---
 
 ## Contents
 
 - [Quick start](#quick-start)
-- [FastForge CLI (Rails-like app generator)](#fastforge-cli-rails-like-app-generator)
+- [Background jobs: Celery + Redis](#background-jobs-celery--redis)
 - [Tech stack](#tech-stack)
 - [Project structure](#project-structure)
 - [Conventions](#conventions)
@@ -26,7 +26,7 @@ A **clean, production-ready framework** that brings Ruby on Rails conventions to
 
 ```bash
 # Clone, enter project, create venv
-cd srijan
+cd <your-project-folder>
 python3 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 
@@ -47,44 +47,54 @@ Then open **http://localhost:8000/health** and **http://localhost:8000/docs** (w
 
 ---
 
-## FastForge CLI (Rails-like app generator)
+## Background jobs: Celery + Redis
 
-Generate new apps and scaffolds with the **fastforge** CLI (like `rails new` / `rails generate`).
+Jobs run in a **separate worker process**, not inside the API server. Redis is the message broker and result store, so Redis must be running before you start the worker.
+
+**1. Install and start Redis**
 
 ```bash
-# Install the CLI (from this repo)
-pip install -e .
+# macOS
+brew install redis && brew services start redis
+# Ubuntu/Debian
+sudo apt install redis-server && sudo systemctl start redis-server
+# Docker
+docker run -d -p 6379:6379 --name redis redis:7
 
-# Create a new app (like rails new my_app)
-fastforge new demo_app
-cd demo_app
-
-# Install app dependencies and configure
-pip install -r requirements.txt
-cp .env.example .env
-cp config/database.yml.example config/database.yml
-
-# Generate model, controller, migration (like rails generate)
-fastforge generate model User
-fastforge generate controller Users
-fastforge generate migration create_users
-
-# Run migrations and server (like rails db:migrate / rails s)
-fastforge migrate
-fastforge runserver
+redis-cli ping    # -> PONG
 ```
 
-| Command | Description |
-|--------|-------------|
-| `fastforge new &lt;app_name&gt;` | Create a new FastAPI app from template |
-| `fastforge generate model User` | Create model, schema, and migration |
-| `fastforge generate controller Users` | Create controller and routes (auto-loaded) |
-| `fastforge generate migration create_users` | Create timestamped migration file |
-| `fastforge migrate` | Run pending migrations |
-| `fastforge runserver` | Start uvicorn with reload |
-| `fastforge routes` | Print all registered routes |
+**2. Check `.env`** (defaults shown):
 
-Generated apps use **auto-loaded routes**: any `app/routes/*_routes.py` that defines a `router` is included automatically (no central routes file to edit).
+```
+CELERY_BROKER_URL=redis://localhost:6379/1
+CELERY_RESULT_BACKEND=redis://localhost:6379/2
+```
+
+**3. Run the processes, each in its own terminal** (virtualenv active):
+
+```bash
+python manage.py runserver                        # API
+python manage.py worker                           # Celery worker, default queue
+python manage.py worker --queue=mailers           # worker for another queue
+python manage.py scheduler                        # Celery Beat (only for periodic tasks)
+```
+
+Raw equivalents: `celery -A config.celery worker -Q default -l info` and `celery -A config.celery beat -l info`. On macOS `manage.py worker` adds `--pool=solo`, because the default prefork pool crashes there; add `--pool=solo` yourself if you run `celery` directly.
+
+**4. Create and enqueue a job**
+
+```bash
+python manage.py generate job send_welcome     # creates app/jobs/send_welcome_job.py
+```
+
+```python
+from app.jobs.send_welcome_job import SendWelcomeJob
+SendWelcomeJob.perform_later(user_id=1)        # queued in Redis, run by the worker
+SendWelcomeJob.perform_now(user_id=1)          # runs inline, no worker needed
+```
+
+Every module in `app/jobs/` is registered automatically; restart the worker after adding or changing a job. Available queues: `default`, `mailers`, `critical`, `low_priority`. In production, run the worker and Beat under a process manager (systemd, supervisor) and point the URLs above at a managed Redis.
 
 ---
 
@@ -95,7 +105,7 @@ Generated apps use **auto-loaded routes**: any `app/routes/*_routes.py` that def
 | **Language**   | Python 3.11+                         |
 | **Web**        | FastAPI, Uvicorn                     |
 | **ORM**        | SQLAlchemy 2.0                       |
-| **Migrations** | Alembic (timestamped, Rails-style)   |
+| **Migrations** | Alembic (timestamped) |
 | **Validation** | Pydantic v2                          |
 | **Database**   | PostgreSQL (config via `database.yml`) |
 | **Queue/Cache**| Redis                                |
@@ -119,7 +129,7 @@ Generated apps use **auto-loaded routes**: any `app/routes/*_routes.py` that def
 │
 ├── config/
 │   ├── settings.py              # Pydantic Settings from .env
-│   ├── database.yml             # Rails-style DB config (development/test/production)
+│   ├── database.yml             # DB config (development/test/production)
 │   ├── database.yml.example     # Template for database.yml
 │   ├── database_yml.py          # Loads database.yml, builds DATABASE_URL
 │   ├── database.py              # Engine, SessionLocal, Base, get_db
@@ -131,7 +141,7 @@ Generated apps use **auto-loaded routes**: any `app/routes/*_routes.py` that def
 │   │   ├── base_controller.py   # before_action, render_json, params
 │   │   └── concerns/            # Authenticatable, Paginatable
 │   ├── models/
-│   │   ├── __init__.py          # Single place: import all models here (Rails convention)
+│   │   ├── __init__.py          # Single place: import all models here
 │   │   ├── base_model.py        # Callbacks, save/destroy, find/create
 │   │   └── concerns/            # Timestampable, SoftDeletable, Sluggable
 │   ├── schemas/                 # Pydantic (validation/serialization only; CRUD via models)
@@ -157,7 +167,7 @@ Generated apps use **auto-loaded routes**: any `app/routes/*_routes.py` that def
 
 ## Conventions
 
-- **Models** — Define in `app/models/<name>.py`, then **add to `app/models/__init__.py`**. Everywhere else: `from app.models import BaseModel, MyModel`. One place, app-wide (like Rails autoload).
+- **Models** — Define in `app/models/<name>.py`, then **add to `app/models/__init__.py`**. Everywhere else: `from app.models import BaseModel, MyModel`. One place, app-wide.
 - **CRUD** — Only through **SQLAlchemy models** (`Model.create(db, ...)`, `instance.save(db)`, `instance.destroy(db)`). Schemas are for **validation and serialization** only.
 - **Database** — Use **`config/database.yml`** per environment; `APP_ENV` selects the section. Set `DATABASE_URL` in `.env` to override.
 - **Routes** — All in **`config/routes.py`** via `draw_routes(app)`, `namespace()`, and `resources()`.
@@ -188,7 +198,7 @@ Copy `.env.example` to `.env`. Key variables:
 
 ### Database (`config/database.yml`)
 
-Rails-style YAML. Copy from `config/database.yml.example`:
+YAML config. Copy from `config/database.yml.example`:
 
 ```yaml
 default: &default
@@ -353,7 +363,7 @@ from app.models import BaseModel, Timestampable, MyModel  # add MyModel in app/m
 ### Jobs (Celery)
 
 - **Base:** `BaseJob` with `perform(**kwargs)`, `perform_later(**kwargs)`, `perform_now(**kwargs)`, `on_failure(exc, kwargs)`.
-- Set `queue`, `retry_limit`, `retry_delay` on the subclass. Register the task in `config/celery.py` `include=[]` and (optional) `beat_schedule` in `config/settings.py`.
+- Set `queue`, `retry_limit`, `retry_delay` on the subclass. Jobs in `app/jobs/` are auto-registered; optional periodic schedules go in `CELERY_BEAT_SCHEDULE` in `config/settings.py`. See [Background jobs: Celery + Redis](#background-jobs-celery--redis) for running the worker.
 
 ### Routing
 

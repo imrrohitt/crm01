@@ -1,6 +1,5 @@
 """
 Application settings loaded from environment.
-Rails equivalent: config/application.rb + config/database.yml + env vars.
 """
 
 from functools import lru_cache
@@ -62,7 +61,7 @@ CELERY_TIMEZONE = "UTC"
 CELERY_ENABLE_UTC = True
 CELERY_TASK_TRACK_STARTED = True
 
-# Named queues (Rails/Sidekiq style)
+# Named queues 
 CELERY_TASK_QUEUES = ["default", "mailers", "critical", "low_priority"]
 CELERY_DEFAULT_QUEUE = "default"
 

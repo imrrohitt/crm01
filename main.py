@@ -1,6 +1,5 @@
 """
 FastAPI application entry point.
-Rails equivalent: config/application.rb + config.ru
 
 Creates the FastAPI app, registers middleware, draws routes,
 and defines startup/shutdown events. Includes health check endpoint.
@@ -21,7 +20,7 @@ from app.middleware.logging_middleware import LoggingMiddleware
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup and shutdown events. Rails equivalent: config/application.rb initializers."""
+    """Startup and shutdown events."""
     settings = get_settings()
     yield
     engine.dispose()
@@ -32,7 +31,7 @@ def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
         title=settings.APP_NAME,
-        description="Rails-style FastAPI boilerplate",
+        description="FastAPI boilerplate",
         version="1.0.0",
         lifespan=lifespan,
         docs_url="/docs" if settings.DEBUG else None,
@@ -58,7 +57,7 @@ def create_app() -> FastAPI:
         """Health check endpoint for load balancers and monitoring."""
         return {"status": "ok", "app": settings.APP_NAME}
 
-    # Register all routes (like Rails routes.rb)
+    # Register all routes
     draw_routes(app)
 
     return app

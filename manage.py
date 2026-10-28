@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CLI manager. Rails equivalent: bin/rails / rails runner
+CLI manager.
 Commands: runserver, generate migration|controller|model|job|service, db:migrate|rollback|status|history|seed|reset, routes, worker, scheduler, shell.
 """
 
@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 @click.group()
 def cli() -> None:
-    """MyApp CLI - Rails-style management."""
+    """MyApp CLI - management commands."""
     pass
 
 
@@ -25,7 +25,7 @@ def cli() -> None:
 @click.option("--port", default=8000, help="Port to run on.")
 @click.option("--host", default="0.0.0.0", help="Host to bind.")
 def runserver(host: str, port: int) -> None:
-    """Start uvicorn with reload. Like rails s."""
+    """Start uvicorn with reload."""
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     subprocess.run([sys.executable, "-m", "uvicorn", "main:app", "--host", host, "--port", str(port), "--reload"], check=True)
 
@@ -153,7 +153,7 @@ def generate_controller(name: str) -> None:
         "app", "controllers", f"{name}_controller.py",
     )
     content = f'''"""
-{class_name}. Rails equivalent: app/controllers/{name}_controller.rb
+{class_name}.
 """
 
 from fastapi import Request
@@ -193,7 +193,7 @@ def generate_model(name: str) -> None:
     class_name = "".join(w.capitalize() for w in name.split("_"))
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app", "models", f"{name}.py")
     content = f'''"""
-{class_name} model. Rails equivalent: app/models/{name}.rb
+{class_name} model.
 """
 
 from sqlalchemy import String
@@ -220,7 +220,7 @@ def generate_job(name: str) -> None:
     class_name = "".join(w.capitalize() for w in name.split("_")) + "Job"
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app", "jobs", f"{name}_job.py")
     content = f'''"""
-{class_name}. Rails equivalent: app/jobs/{name}_job.rb
+{class_name}.
 """
 
 from config.celery import celery_app
@@ -249,7 +249,7 @@ def generate_service(name: str) -> None:
     class_name = "".join(w.capitalize() for w in name.split("_")) + "Service"
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app", "services", f"{name}_service.py")
     content = f'''"""
-{class_name}. Rails equivalent: app/services/{name}_service.rb
+{class_name}.
 """
 
 from app.services.base_service import BaseService
@@ -267,7 +267,7 @@ class {class_name}(BaseService):
 
 @cli.command()
 def routes() -> None:
-    """Print all registered routes (like rails routes)."""
+    """Print all registered routes."""
     from main import app
     for route in app.routes:
         if hasattr(route, "methods") and hasattr(route, "path"):
@@ -281,16 +281,20 @@ def routes() -> None:
 @cli.command()
 @click.option("--queue", default="default", help="Queue to consume.")
 def worker(queue: str) -> None:
-    """Start Celery worker. Like sidekiq."""
+    """Start Celery worker (requires Redis)."""
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    subprocess.run(["celery", "-A", "config.celery", "worker", "-Q", queue, "-l", "info"], check=True)
+    cmd = [sys.executable, "-m", "celery", "-A", "config.celery", "worker", "-Q", queue, "-l", "info"]
+    if sys.platform == "darwin":
+        # The default prefork pool crashes on macOS; solo runs tasks in the worker process.
+        cmd += ["--pool=solo"]
+    subprocess.run(cmd, check=True)
 
 
 @cli.command()
 def scheduler() -> None:
-    """Start Celery Beat scheduler."""
+    """Start Celery Beat scheduler (requires Redis)."""
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    subprocess.run(["celery", "-A", "config.celery", "beat", "-l", "info"], check=True)
+    subprocess.run([sys.executable, "-m", "celery", "-A", "config.celery", "beat", "-l", "info"], check=True)
 
 
 @cli.command()

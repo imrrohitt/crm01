@@ -1,6 +1,5 @@
 """
 Request/response logging middleware.
-Rails equivalent: Rack::CommonLogger / lograge
 """
 
 import time

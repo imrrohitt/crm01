@@ -1,4 +1,4 @@
-# Rails-style database configuration.
+# Database configuration.
 # Copy from database.yml.example and adjust. Environment selected by APP_ENV.
 
 default: &default

@@ -1,4 +1,4 @@
-"""Services layer. Rails equivalent: app/services/."""
+"""Services layer."""
 
 from app.services.base_service import BaseService
 

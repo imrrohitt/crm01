@@ -1,6 +1,5 @@
 """
 Base service with success/failure result helpers.
-Rails equivalent: ApplicationService / service objects
 """
 
 from typing import Any

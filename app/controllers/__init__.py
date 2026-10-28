@@ -1,4 +1,4 @@
-"""Controllers. Rails equivalent: app/controllers/."""
+"""Controllers."""
 
 from app.controllers.base_controller import BaseController
 

@@ -1,6 +1,5 @@
 """
 Base job with perform_later, perform_now, retry, and on_failure.
-Rails equivalent: ApplicationJob / Sidekiq::Worker
 """
 
 from typing import Any
@@ -18,7 +17,8 @@ class BaseJob:
     @classmethod
     def perform_later(cls, **kwargs: Any) -> Any:
         """Enqueue job to run asynchronously."""
-        return cls.run.apply_async(args=(), kwargs=kwargs, queue=cls.queue)
+        task_name = f"{cls.__module__}.{cls.__name__}.run"
+        return celery_app.send_task(task_name, kwargs=kwargs, queue=cls.queue)
 
     @classmethod
     def perform_now(cls, **kwargs: Any) -> Any:

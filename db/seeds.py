@@ -1,5 +1,5 @@
 """
-Database seeding. Rails equivalent: db/seeds.rb
+Database seeding.
 Framework only — add your seed logic here.
 """
 

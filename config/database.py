@@ -1,6 +1,5 @@
 """
 Database engine and session management.
-Rails equivalent: config/database.rb — uses config/database.yml for connection.
 """
 
 from typing import Generator
@@ -48,12 +47,12 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 class Base(DeclarativeBase):
-    """SQLAlchemy declarative base. Rails equivalent: ApplicationRecord base."""
+    """SQLAlchemy declarative base."""
     pass
 
 
 def get_db() -> Generator[Session, None, None]:
-    """Dependency that yields a DB session. Rails equivalent: ActiveRecord connection per request."""
+    """Dependency that yields a DB session."""
     db = SessionLocal()
     try:
         yield db

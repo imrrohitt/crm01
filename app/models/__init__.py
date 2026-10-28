@@ -1,5 +1,5 @@
 """
-Models package — single source for app-wide model access (Rails convention).
+Models package — single source for app-wide model access.
 Import all application models here; then use "from app.models import ModelName" everywhere.
 Only SQLAlchemy models perform CRUD; schemas are for validation/serialization only.
 """

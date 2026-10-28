@@ -1,5 +1,5 @@
 """
-Central route definitions. Rails equivalent: config/routes.rb
+Central route definitions.
 Single file where all routes are registered. Uses resources() and namespace().
 Add your controllers and routes here.
 """

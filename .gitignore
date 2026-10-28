@@ -15,7 +15,7 @@ build/
 venv/
 ENV/
 
-# Generated app (from fastforge new)
+# Generated app
 demo_app/
 
 # Env and local config
