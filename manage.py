@@ -27,7 +27,7 @@ def cli() -> None:
 def runserver(host: str, port: int) -> None:
     """Start uvicorn with reload. Like rails s."""
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    subprocess.run(["uvicorn", "main:app", "--host", host, "--port", str(port), "--reload"], check=True)
+    subprocess.run([sys.executable, "-m", "uvicorn", "main:app", "--host", host, "--port", str(port), "--reload"], check=True)
 
 
 @cli.group("db")

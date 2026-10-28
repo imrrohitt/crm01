@@ -5,9 +5,10 @@ Add your controllers and routes here.
 """
 
 import asyncio
-from typing import Callable
+from contextlib import contextmanager
+from typing import Callable, Iterator
 
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, FastAPI, HTTPException, Request, Depends
 from sqlalchemy.orm import Session
 
 from config.database import get_db
@@ -28,21 +29,25 @@ def _wrap(
     ):
         request.state.path_params = getattr(request, "path_params", None) or {}
         ctrl = controller_cls(request=request, db=db)
+        if request.headers.get("content-type", "").startswith("application/json"):
+            await ctrl._get_body_json()
         try:
             if run_before:
                 controller_cls._run_before_actions(ctrl, action)
+        except HTTPException as e:
+            return error_response(str(e.detail), code=e.status_code)
         except Exception as e:
             return error_response(str(e), code=500)
         result = handler(ctrl)
         if asyncio.iscoroutine(result):
-            return await result
-        return result
+            result = await result
+        return controller_cls._run_after_actions(ctrl, action, result)
 
     return _async_wrapper
 
 
 def resources(
-    app_or_router: "APIRouter | FastAPI",
+    app_or_router: APIRouter | FastAPI,
     path: str,
     controller_cls: type,
     only: list[str] | None = None,
@@ -84,14 +89,15 @@ def resources(
         )
 
 
-def namespace(app: "FastAPI", prefix: str):
+@contextmanager
+def namespace(app: FastAPI, prefix: str) -> Iterator[APIRouter]:
     """Context manager: yield a router with prefix, then include it in app."""
     router = APIRouter(prefix=prefix)
     yield router
     app.include_router(router)
 
 
-def draw_routes(app: "FastAPI") -> None:
+def draw_routes(app: FastAPI) -> None:
     """
     Register all routes. Framework only — add your resources here.
     Example:

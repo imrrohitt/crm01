@@ -72,6 +72,10 @@ class BaseController:
                 if cls not in _BEFORE_ACTIONS:
                     _BEFORE_ACTIONS[cls] = []
                 _BEFORE_ACTIONS[cls].append((attr, only, except_list))
+            if callable(attr) and getattr(attr, "_after_action", False):
+                _AFTER_ACTIONS.setdefault(cls, [])
+                if attr not in _AFTER_ACTIONS[cls]:
+                    _AFTER_ACTIONS[cls].append(attr)
 
     def __init__(self, request: Request, db: Session) -> None:
         self.request = request
@@ -80,20 +84,13 @@ class BaseController:
 
     @property
     def params(self) -> dict[str, Any]:
-        """Merged path params, query params, and JSON body."""
-        from fastapi import Request as FRequest
-        path = getattr(self.request, "path_params", None) or {}
-        query = dict(self.request.query_params) if self.request.query_params else {}
-        body = {}
-        if hasattr(self.request, "state") and hasattr(self.request.state, "body"):
-            body = getattr(self.request.state.body, "body", body)
-        try:
-            import json
-            if self.request.headers.get("content-type", "").startswith("application/json"):
-                body = getattr(self.request.state, "_json_body", {})
-        except Exception:
-            pass
-        return {**path, **query, **body}
+        """Merged path params, query params, and JSON body (body wins)."""
+        path = dict(getattr(self.request, "path_params", None) or {})
+        query = dict(self.request.query_params)
+        body = getattr(self.request.state, "_json_body", None)
+        if not isinstance(body, dict):
+            body = {}
+        return {**query, **body, **path}
 
     def render_json(
         self,
