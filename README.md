@@ -264,6 +264,27 @@ python manage.py generate migration create_articles_table
 python manage.py db:seed
 ```
 
+### Multi-tenant CRM schema (PostgreSQL)
+
+`db/migrations/versions/` holds one migration per table (36 tables, plus one for extensions and the `set_updated_at()` trigger). Run `python manage.py db:migrate`. Requires PostgreSQL 15+ (uses `ON DELETE SET NULL (column)` and `gen_random_uuid()`).
+
+| Module | Tables |
+|--------|--------|
+| Identity & tenancy | `users`, `user_profiles`, `tenants`, `tenant_memberships`, `tenant_member_profiles`, `roles`, `permissions`, `role_permissions`, `membership_roles`, `invitations` |
+| Plans & billing | `plans`, `features`, `plan_features`, `subscriptions`, `subscription_items`, `billing_events`, `tenant_feature_overrides`, `tenant_settings` |
+| Instagram | `social_accounts`, `social_account_tokens`, `social_account_assignments`, `webhook_events` |
+| CRM | `contacts`, `conversations`, `messages`, `message_attachments`, `conversation_assignments`, `leads`, `lead_assignments`, `tags`, `contact_tags` |
+| Automation, usage, audit | `automation_rules`, `automation_runs`, `ai_usage_records`, `usage_counters`, `audit_logs` |
+
+Design rules:
+
+- **Users are global, tenants are companies.** The link is `tenant_memberships`; roles attach to the membership (`membership_roles`), never to the user. `user_profiles` has no `tenant_id`.
+- **Instagram DM senders are `contacts`, not users.** Contacts are scoped to a `social_account`, unique on `(social_account_id, platform_user_id)`.
+- **Tenant isolation is enforced by the database.** Child tables use composite foreign keys such as `(tenant_id, contact_id) -> contacts(tenant_id, id)`, so a row cannot reference another tenant's record.
+- **Every table** has `additional_attributes JSONB` (free-form extra data), `created_at`, and `updated_at` (set by trigger).
+- **Postgres features used:** partial unique indexes (one live subscription per tenant, one open assignment per conversation), GIN `jsonb_path_ops` on JSONB, `pg_trgm` GIN for username/name search, full-text GIN on `messages.content`, BRIN on `audit_logs.created_at`, CHECK constraints for statuses, and idempotency keys for webhooks and messages.
+- Plans, features, system roles and permissions are not seeded; add them in `db/seeds.py`.
+
 ---
 
 ## Running the app
