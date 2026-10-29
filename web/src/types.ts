@@ -25,6 +25,30 @@ export interface CompanyDetail extends Company {
   subscription: SubscriptionSummary
 }
 
+export interface ChannelAccount {
+  id: string
+  platform: string
+  platform_account_id: string
+  username: string | null
+  account_type: string | null
+  status: 'connected' | 'disconnected' | 'error'
+  profile_picture_url: string | null
+  connected_at: string
+}
+
+export interface Channel {
+  key: string
+  name: string
+  configured: boolean
+  limit: number | null
+  accounts: ChannelAccount[]
+}
+
+export interface ChannelsResponse {
+  channels: Channel[]
+  can_manage: boolean
+}
+
 export interface Session {
   access_token: string
   refresh_token: string

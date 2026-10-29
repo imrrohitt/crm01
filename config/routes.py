@@ -125,6 +125,7 @@ def draw_routes(app: FastAPI) -> None:
             resources(router, "/articles", ArticlesController)
     """
     from app.controllers.auth_controller import AuthController
+    from app.controllers.channels_controller import ChannelsController
     from app.controllers.companies_controller import CompaniesController
 
     with namespace(app, "/api/v1") as router:
@@ -132,3 +133,8 @@ def draw_routes(app: FastAPI) -> None:
         route(router, "POST", "/auth/refresh", AuthController, "refresh")
         route(router, "GET", "/auth/me", AuthController, "me")
         resources(router, "/companies", CompaniesController, only=["index", "show"], id_type="uuid")
+        route(router, "GET", "/companies/{company_id:uuid}/channels", ChannelsController, "index")
+        route(router, "POST", "/companies/{company_id:uuid}/channels/instagram/connect", ChannelsController, "connect_instagram")
+        route(router, "DELETE", "/companies/{company_id:uuid}/channels/instagram/{account_id:uuid}", ChannelsController, "disconnect_instagram")
+        # Instagram redirects the browser here; the signed state identifies the user (no Bearer token)
+        route(router, "GET", "/channels/instagram/callback", ChannelsController, "instagram_callback")

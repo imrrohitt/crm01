@@ -1,4 +1,4 @@
-import type { Company, CompanyDetail, Session, User } from '../types'
+import type { ChannelAccount, ChannelsResponse, Company, CompanyDetail, Session, User } from '../types'
 
 const ACCESS_KEY = 'icrm.access'
 const REFRESH_KEY = 'icrm.refresh'
@@ -108,4 +108,9 @@ export const api = {
   me: () => authed<{ user: User; companies: Company[] }>('/auth/me'),
   companies: () => authed<Company[]>('/companies'),
   company: (id: string) => authed<CompanyDetail>(`/companies/${id}`),
+  channels: (companyId: string) => authed<ChannelsResponse>(`/companies/${companyId}/channels`),
+  connectInstagram: (companyId: string) =>
+    authed<{ authorize_url: string }>(`/companies/${companyId}/channels/instagram/connect`, { method: 'POST' }),
+  disconnectInstagram: (companyId: string, accountId: string) =>
+    authed<ChannelAccount>(`/companies/${companyId}/channels/instagram/${accountId}`, { method: 'DELETE' }),
 }

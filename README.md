@@ -309,6 +309,21 @@ There is no signup; users are created by seeds (later: invitations). After login
 
 Code layout: controllers `app/controllers/auth_controller.py` and `companies_controller.py`, services `auth_service.py` and `entitlement_service.py`, routes in `config/routes.py` (`route()` for single endpoints, `resources(..., id_type="uuid")` for UUID resources).
 
+### Connecting Instagram (Channels)
+
+Open **Channels** in the sidebar, click **Connect to Instagram**, log in on Instagram, and the account is saved for that company. Only owners/admins (`settings.manage`) can connect or disconnect; the plan's `instagram_accounts` limit is enforced. Tokens are stored encrypted (`ENCRYPTION_KEY`) and never returned by the API.
+
+**One-time platform setup** (you, once, not per customer):
+
+1. Meta app (developers.facebook.com) -> add the **Instagram** product -> *API setup with Instagram login*. Copy the **Instagram app ID** and **Instagram app secret** (not the ones in Settings -> Basic) into `.env` as `INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET`.
+2. In *Business login settings* add the OAuth redirect URI `<public API URL>/api/v1/channels/instagram/callback` and put the same value in `INSTAGRAM_REDIRECT_URI`.
+3. Set `ENCRYPTION_KEY` to a long random string: `python -c "import secrets; print(secrets.token_urlsafe(48))"`. Do not change it later without re-encrypting stored tokens.
+4. While the Meta app is in Development mode, add each Instagram account you want to connect under *App roles -> Roles -> Instagram testers* and accept the invite in Instagram (Settings -> Apps and websites). The account must be a Professional (Business/Creator) account.
+
+**Local development:** Instagram redirects the browser to the public API URL, so expose the API with a tunnel (`ngrok http 8000`) and use the https URL in `INSTAGRAM_REDIRECT_URI` and in the Meta app. Free ngrok URLs change on restart (update both places), and ngrok's free plan shows a one-time "Visit Site" page. The callback then redirects the browser to `FRONTEND_URL` (`http://localhost:3000`).
+
+Endpoints: `GET /api/v1/companies/{id}/channels`, `POST /api/v1/companies/{id}/channels/instagram/connect`, `DELETE /api/v1/companies/{id}/channels/instagram/{account_id}`, `GET /api/v1/channels/instagram/callback` (called by Instagram; the signed `state` identifies the user and company).
+
 ---
 
 ## Running the app

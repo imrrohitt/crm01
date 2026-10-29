@@ -17,6 +17,7 @@ from app.models.tenant_membership import (
     RolePermission,
     TenantMembership,
 )
+from app.models.social_account import SocialAccount, SocialAccountToken
 from app.models.plan import Feature, Plan, PlanFeature, Subscription
 
 __all__ = [
@@ -36,4 +37,6 @@ __all__ = [
     "Feature",
     "PlanFeature",
     "Subscription",
+    "SocialAccount",
+    "SocialAccountToken",
 ]

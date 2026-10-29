@@ -109,3 +109,20 @@ dd { margin: 0; min-width: 0; }
   .content { padding: 16px; }
 }
 @media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
+
+/* channels */
+.alert-ok { background: #e8f7ee; color: #0f6b3a; }
+@media (prefers-color-scheme: dark) { .alert-ok { background: #12301f; color: #8ee0b0; } }
+.alert { margin-bottom: 1rem; }
+.channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.channel-card { display: grid; gap: .9rem; align-content: start; }
+.channel-head { display: flex; align-items: center; gap: .9rem; }
+.channel-head h2 { margin: 0; }
+.small { font-size: .85rem; }
+.account-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+.account-list li { display: flex; align-items: center; gap: .7rem; padding: .6rem; border: 1px solid var(--border); border-radius: 10px; }
+.account-meta { display: grid; flex: 1; min-width: 0; line-height: 1.25; }
+.account-meta strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.avatar-img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex: none; }
+.btn-small { padding: .3rem .7rem; font-size: .85rem; }
+.text-danger { color: var(--danger); }

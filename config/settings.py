@@ -42,6 +42,22 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
 
+    # Public URLs
+    FRONTEND_URL: str = "http://localhost:3000"
+
+    # Instagram (Instagram API with Instagram Login). Use the *Instagram* app id/secret
+    # from the Meta app's Instagram product page, not Settings -> Basic.
+    INSTAGRAM_APP_ID: str = ""
+    INSTAGRAM_APP_SECRET: str = ""
+    # Must match "Valid OAuth redirect URIs" in the Meta app exactly. The API must be
+    # reachable at this URL (ngrok https URL in development).
+    INSTAGRAM_REDIRECT_URI: str = ""
+    INSTAGRAM_API_VERSION: str = "v24.0"
+    INSTAGRAM_SCOPES: str = "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments"
+
+    # Secret used to encrypt stored access tokens (any long random string; see README).
+    ENCRYPTION_KEY: str = ""
+
     # CORS (browser origins allowed to call the API)
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
