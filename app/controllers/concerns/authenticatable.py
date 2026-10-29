@@ -28,8 +28,9 @@ class Authenticatable:
         """Current user id (dict or model)."""
         if isinstance(self.current_user, dict):
             sub = self.current_user.get("sub")
-            return int(sub) if sub else None
-        return getattr(self.current_user, "id", None)
+            return str(sub) if sub else None
+        uid = getattr(self.current_user, "id", None)
+        return str(uid) if uid is not None else None
 
     def require_admin(self) -> None:
         """Raise 403 if current_user is not admin."""
@@ -49,5 +50,5 @@ class Authenticatable:
         if uid is None:
             raise HTTPException(status_code=403, detail="Not authorized to access this resource")
         is_admin = self._role() == "admin"
-        if owner_id != uid and not is_admin:
+        if str(owner_id) != uid and not is_admin:
             raise HTTPException(status_code=403, detail="Not authorized to access this resource")

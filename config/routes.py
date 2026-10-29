@@ -32,15 +32,18 @@ def _wrap(
         if request.headers.get("content-type", "").startswith("application/json"):
             await ctrl._get_body_json()
         try:
-            if run_before:
-                controller_cls._run_before_actions(ctrl, action)
+            try:
+                if run_before:
+                    controller_cls._run_before_actions(ctrl, action)
+            except HTTPException:
+                raise
+            except Exception as e:
+                return error_response(str(e), code=500)
+            result = handler(ctrl)
+            if asyncio.iscoroutine(result):
+                result = await result
         except HTTPException as e:
             return error_response(str(e.detail), code=e.status_code)
-        except Exception as e:
-            return error_response(str(e), code=500)
-        result = handler(ctrl)
-        if asyncio.iscoroutine(result):
-            result = await result
         return controller_cls._run_after_actions(ctrl, action, result)
 
     return _async_wrapper
@@ -51,9 +54,11 @@ def resources(
     path: str,
     controller_cls: type,
     only: list[str] | None = None,
+    id_type: str = "int",
 ) -> None:
     """
     Register REST resource routes: index, show, create, update, destroy.
+    id_type is the Starlette path convertor for {id}: "int" (default) or "uuid".
     GET path -> index, POST path -> create, GET path/{id} -> show, PUT path/{id} -> update, DELETE path/{id} -> destroy.
     """
     only = only or ["index", "show", "create", "update", "destroy"]
@@ -71,22 +76,37 @@ def resources(
         )
     if "show" in only:
         app_or_router.add_api_route(
-            f"{path}/{{id:int}}",
+            f"{path}/{{id:{id_type}}}",
             _wrap(controller_cls, "show", lambda c: c.show()),
             methods=["GET"],
         )
     if "update" in only:
         app_or_router.add_api_route(
-            f"{path}/{{id:int}}",
+            f"{path}/{{id:{id_type}}}",
             _wrap(controller_cls, "update", lambda c: c.update()),
             methods=["PUT"],
         )
     if "destroy" in only:
         app_or_router.add_api_route(
-            f"{path}/{{id:int}}",
+            f"{path}/{{id:{id_type}}}",
             _wrap(controller_cls, "destroy", lambda c: c.destroy()),
             methods=["DELETE"],
         )
+
+
+def route(
+    app_or_router: APIRouter | FastAPI,
+    method: str,
+    path: str,
+    controller_cls: type,
+    action: str,
+) -> None:
+    """Register a single non-REST endpoint, e.g. route(router, "POST", "/auth/login", AuthController, "login")."""
+    app_or_router.add_api_route(
+        path,
+        _wrap(controller_cls, action, lambda c: getattr(c, action)()),
+        methods=[method.upper()],
+    )
 
 
 @contextmanager
@@ -99,10 +119,16 @@ def namespace(app: FastAPI, prefix: str) -> Iterator[APIRouter]:
 
 def draw_routes(app: FastAPI) -> None:
     """
-    Register all routes. Framework only — add your resources here.
+    Register all routes.
     Example:
         with namespace(app, "/api/v1") as router:
             resources(router, "/articles", ArticlesController)
     """
-    # No application routes by default — add your controllers above
-    pass
+    from app.controllers.auth_controller import AuthController
+    from app.controllers.companies_controller import CompaniesController
+
+    with namespace(app, "/api/v1") as router:
+        route(router, "POST", "/auth/login", AuthController, "login")
+        route(router, "POST", "/auth/refresh", AuthController, "refresh")
+        route(router, "GET", "/auth/me", AuthController, "me")
+        resources(router, "/companies", CompaniesController, only=["index", "show"], id_type="uuid")

@@ -8,14 +8,32 @@ from app.models.base_model import BaseModel
 from app.models.concerns.timestampable import Timestampable
 from app.models.concerns.soft_deletable import SoftDeletable
 from app.models.concerns.sluggable import Sluggable
-
-# When you add a new model (e.g. app/models/article.py), import and list it here:
-# from app.models.article import Article
-# __all__ = [..., "Article"]
+from app.models.user import User, UserProfile
+from app.models.tenant import Tenant
+from app.models.tenant_membership import (
+    MembershipRole,
+    Permission,
+    Role,
+    RolePermission,
+    TenantMembership,
+)
+from app.models.plan import Feature, Plan, PlanFeature, Subscription
 
 __all__ = [
     "BaseModel",
     "Timestampable",
     "SoftDeletable",
     "Sluggable",
+    "User",
+    "UserProfile",
+    "Tenant",
+    "TenantMembership",
+    "Role",
+    "Permission",
+    "RolePermission",
+    "MembershipRole",
+    "Plan",
+    "Feature",
+    "PlanFeature",
+    "Subscription",
 ]

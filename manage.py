@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 CLI manager.
-Commands: runserver, generate migration|controller|model|job|service, db:migrate|rollback|status|history|seed|reset, routes, worker, scheduler, shell.
+Commands: runserver, generate migration|controller|model|job|service, db migrate|rollback|status|history|seed|reset, routes, worker, scheduler, shell.
 """
 
 import os

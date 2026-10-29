@@ -4,6 +4,7 @@ JWT token creation and validation.
 
 from datetime import datetime, timezone, timedelta
 from typing import Any
+from uuid import UUID, uuid4
 
 from jose import JWTError, jwt
 
@@ -16,13 +17,12 @@ class JWTHelper:
     """Create and decode JWT access/refresh tokens."""
 
     @staticmethod
-    def create_access_token(user_id: int, email: str, role: str) -> str:
+    def create_access_token(user_id: "str | UUID", email: str) -> str:
         """Create short-lived access token (e.g. 15 min)."""
         expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         payload = {
             "sub": str(user_id),
             "email": email,
-            "role": role,
             "type": "access",
             "exp": expire,
             "iat": datetime.now(timezone.utc),
@@ -34,12 +34,13 @@ class JWTHelper:
         )
 
     @staticmethod
-    def create_refresh_token(user_id: int) -> str:
+    def create_refresh_token(user_id: "str | UUID") -> str:
         """Create long-lived refresh token (e.g. 7 days)."""
         expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
         payload = {
             "sub": str(user_id),
             "type": "refresh",
+            "jti": uuid4().hex,
             "exp": expire,
             "iat": datetime.now(timezone.utc),
         }

@@ -4,6 +4,7 @@ Standardized JSON response helpers.
 
 from typing import Any
 
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
 
@@ -12,7 +13,7 @@ def success_response(data: Any, status: int = 200, meta: dict[str, Any] | None =
     body: dict[str, Any] = {"success": True, "data": data}
     if meta:
         body["meta"] = meta
-    return JSONResponse(content=body, status_code=status)
+    return JSONResponse(content=jsonable_encoder(body), status_code=status)
 
 
 def error_response(error: str, code: int = 400) -> JSONResponse:

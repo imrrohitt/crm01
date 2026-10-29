@@ -36,8 +36,8 @@ cp .env.example .env
 cp config/database.yml.example config/database.yml   # edit with your DB credentials
 
 # Database (optional — framework has no tables by default)
-python manage.py db:migrate
-python manage.py db:seed
+python manage.py db migrate
+python manage.py db seed
 
 # Run
 python manage.py runserver
@@ -240,14 +240,14 @@ production:
 
 | Command | Description |
 |--------|-------------|
-| `python manage.py db:migrate` | Run pending migrations |
-| `python manage.py db:rollback` | Rollback one step |
-| `python manage.py db:rollback --step=3` | Rollback 3 steps |
-| `python manage.py db:rollback --to=<revision>` | Rollback to revision |
-| `python manage.py db:status` | Current revision |
-| `python manage.py db:history` | Migration history |
-| `python manage.py db:seed` | Run `db/seeds.py` |
-| `python manage.py db:reset` | Downgrade all → migrate → seed |
+| `python manage.py db migrate` | Run pending migrations |
+| `python manage.py db rollback` | Rollback one step |
+| `python manage.py db rollback --step=3` | Rollback 3 steps |
+| `python manage.py db rollback --to=<revision>` | Rollback to revision |
+| `python manage.py db status` | Current revision |
+| `python manage.py db history` | Migration history |
+| `python manage.py db seed` | Run `db/seeds.py` |
+| `python manage.py db reset` | Downgrade all → migrate → seed |
 
 **Generate a new migration:**
 
@@ -261,12 +261,12 @@ python manage.py generate migration create_articles_table
 `db/seeds.py` is a no-op by default. Override `run_seeds()` with your own logic and run:
 
 ```bash
-python manage.py db:seed
+python manage.py db seed
 ```
 
 ### Multi-tenant CRM schema (PostgreSQL)
 
-`db/migrations/versions/` holds one migration per table (36 tables, plus one for extensions and the `set_updated_at()` trigger). Run `python manage.py db:migrate`. Requires PostgreSQL 15+ (uses `ON DELETE SET NULL (column)` and `gen_random_uuid()`).
+`db/migrations/versions/` holds one migration per table (36 tables, plus one for extensions and the `set_updated_at()` trigger). Run `python manage.py db migrate`. Requires PostgreSQL 15+ (uses `ON DELETE SET NULL (column)` and `gen_random_uuid()`).
 
 | Module | Tables |
 |--------|--------|
@@ -284,6 +284,30 @@ Design rules:
 - **Every table** has `additional_attributes JSONB` (free-form extra data), `created_at`, and `updated_at` (set by trigger).
 - **Postgres features used:** partial unique indexes (one live subscription per tenant, one open assignment per conversation), GIN `jsonb_path_ops` on JSONB, `pg_trgm` GIN for username/name search, full-text GIN on `messages.content`, BRIN on `audit_logs.created_at`, CHECK constraints for statuses, and idempotency keys for webhooks and messages.
 - Plans, features, system roles and permissions are not seeded; add them in `db/seeds.py`.
+
+### Authentication API and web app
+
+Seed demo data, then run the API and the React app (`web/`, Vite + React + TypeScript):
+
+```bash
+python manage.py db migrate
+python manage.py db seed          # roles, plans + features, 2 companies, 4 login users (see db/seeds.py)
+python manage.py runserver        # API on :8000
+
+cd web && npm install && npm run dev   # UI on http://localhost:3000 (proxies /api to :8000)
+```
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| POST | `/api/v1/auth/login` | none | `{email, password}` → access + refresh JWT, user, companies |
+| POST | `/api/v1/auth/refresh` | none | `{refresh_token}` → new token pair |
+| GET | `/api/v1/auth/me` | Bearer | current user and companies |
+| GET | `/api/v1/companies` | Bearer | companies the user belongs to |
+| GET | `/api/v1/companies/{id}` | Bearer | company, my roles, plan and enabled features (404 if not a member) |
+
+There is no signup; users are created by seeds (later: invitations). After login the UI lands on `/accounts/companies/<company-id>`, so the tenant id is always in the URL (ids are UUIDs). Subscription enforcement is off by default (`SUBSCRIPTION_ENFORCED=false`): every active company has access, and the plan's features are still returned and drive the sidebar.
+
+Code layout: controllers `app/controllers/auth_controller.py` and `companies_controller.py`, services `auth_service.py` and `entitlement_service.py`, routes in `config/routes.py` (`route()` for single endpoints, `resources(..., id_type="uuid")` for UUID resources).
 
 ---
 
@@ -322,14 +346,14 @@ Add your own routes in `config/routes.py` inside `draw_routes(app)`.
 
 | Command | Description |
 |---------|-------------|
-| `db:migrate` | `alembic upgrade head` |
-| `db:rollback` | Rollback 1 migration |
-| `db:rollback --step=N` | Rollback N migrations |
-| `db:rollback --to=REV` | Rollback to revision |
-| `db:status` | Current revision |
-| `db:history` | Full history |
-| `db:seed` | Run `db/seeds.py` |
-| `db:reset` | Downgrade all → migrate → seed |
+| `db migrate` | `alembic upgrade head` |
+| `db rollback` | Rollback 1 migration |
+| `db rollback --step=N` | Rollback N migrations |
+| `db rollback --to=REV` | Rollback to revision |
+| `db status` | Current revision |
+| `db history` | Full history |
+| `db seed` | Run `db/seeds.py` |
+| `db reset` | Downgrade all → migrate → seed |
 
 ### Generators
 
@@ -443,7 +467,7 @@ __all__ = [..., "Article"]
 ```bash
 python manage.py generate migration create_articles_table
 # Edit db/migrations/versions/YYYYMMDD_HHMMSS_create_articles_table.py: add op.create_table(...)
-python manage.py db:migrate
+python manage.py db migrate
 ```
 
 ### 3. Controller and routes
@@ -475,8 +499,8 @@ with namespace(app, "/api/v1") as router:
    - **Workers:** one or more Celery workers; one Beat process if using scheduled tasks.
 
 3. **Database**
-   - `python manage.py db:migrate`
-   - Optionally run your seeds once: `python manage.py db:seed`
+   - `python manage.py db migrate`
+   - Optionally run your seeds once: `python manage.py db seed`
 
 4. **Security**
    - Restrict CORS in `main.py` (e.g. from settings). Use HTTPS in production.
