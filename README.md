@@ -209,7 +209,7 @@ default: &default
 
 development:
   <<: *default
-  database: myapp_development
+  database: insta_crm_development
   username: postgres
   password: postgres
   host: localhost
@@ -217,12 +217,12 @@ development:
 
 test:
   <<: *default
-  database: myapp_test
+  database: insta_crm_test
   # ...
 
 production:
   <<: *default
-  database: myapp_production
+  database: insta_crm_production
   # ...
 ```
 
