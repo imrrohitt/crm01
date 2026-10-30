@@ -126,3 +126,16 @@ dd { margin: 0; min-width: 0; }
 .avatar-img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex: none; }
 .btn-small { padding: .3rem .7rem; font-size: .85rem; }
 .text-danger { color: var(--danger); }
+.connection-box { display: grid; gap: .35rem; padding: .7rem; border: 1px solid var(--border); border-radius: 10px; }
+.connection-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.connection-box label { font-weight: 600; }
+.copy-row { display: flex; align-items: flex-start; gap: .4rem; }
+.copy-row code { flex: 1; padding: .35rem .5rem; border-radius: 8px; background: var(--bg); }
+.modal-backdrop { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 16px; background: rgb(0 0 0 / .45); }
+.modal { width: 100%; max-width: 460px; display: grid; gap: .45rem; padding: 22px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); }
+.modal h2 { margin: 0; }
+.modal label { font-size: .85rem; font-weight: 600; margin-top: .35rem; }
+.modal textarea { width: 100%; padding: .6rem .75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; resize: vertical; }
+.modal textarea:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: .6rem; }
+.profile-found { display: flex; align-items: center; gap: .7rem; padding: .6rem; border: 1px solid var(--border); border-radius: 10px; }

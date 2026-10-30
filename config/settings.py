@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     # Must match "Valid OAuth redirect URIs" in the Meta app exactly. The API must be
     # reachable at this URL (ngrok https URL in development).
     INSTAGRAM_REDIRECT_URI: str = ""
+    # Must match the Verify Token saved on the Meta app webhook. Meta sends it on the GET handshake.
+    INSTAGRAM_VERIFY_TOKEN: str = ""
     INSTAGRAM_API_VERSION: str = "v24.0"
     INSTAGRAM_SCOPES: str = "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments"
 

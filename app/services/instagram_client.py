@@ -13,6 +13,7 @@ from config.settings import get_settings
 AUTHORIZE_URL = "https://www.instagram.com/oauth/authorize"
 TOKEN_URL = "https://api.instagram.com/oauth/access_token"
 GRAPH_URL = "https://graph.instagram.com"
+FACEBOOK_GRAPH_URL = "https://graph.facebook.com"
 TIMEOUT = 15.0
 
 
@@ -106,3 +107,11 @@ class InstagramClient:
             f"{GRAPH_URL}/{self.settings.INSTAGRAM_API_VERSION}/me",
             params={"fields": "user_id,username,name,account_type,profile_picture_url", "access_token": token},
         )
+
+    def business_profile(self, ig_id: str, token: str) -> dict[str, Any]:
+        """Profile of a professional account, loaded with a Facebook user or system token."""
+        url = f"{FACEBOOK_GRAPH_URL}/{self.settings.INSTAGRAM_API_VERSION}/{ig_id}"
+        try:
+            return self._request("GET", url, params={"fields": "id,username,name,profile_picture_url", "access_token": token})
+        except InstagramApiError:
+            return self._request("GET", url, params={"fields": "id,username,name", "access_token": token})

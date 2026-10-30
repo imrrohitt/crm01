@@ -1,4 +1,4 @@
-import type { ChannelAccount, ChannelsResponse, Company, CompanyDetail, Session, User } from '../types'
+import type { ChannelAccount, ChannelsResponse, Company, CompanyDetail, InstagramConnection, InstagramProfile, Session, User, WebhookPreview } from '../types'
 
 const ACCESS_KEY = 'icrm.access'
 const REFRESH_KEY = 'icrm.refresh'
@@ -109,8 +109,26 @@ export const api = {
   companies: () => authed<Company[]>('/companies'),
   company: (id: string) => authed<CompanyDetail>(`/companies/${id}`),
   channels: (companyId: string) => authed<ChannelsResponse>(`/companies/${companyId}/channels`),
-  connectInstagram: (companyId: string) =>
-    authed<{ authorize_url: string }>(`/companies/${companyId}/channels/instagram/connect`, { method: 'POST' }),
+  verifyInstagram: (companyId: string, instagramAppId: string, accessToken: string) =>
+    authed<InstagramProfile>(`/companies/${companyId}/channels/instagram/verify`, {
+      method: 'POST',
+      body: JSON.stringify({ instagram_app_id: instagramAppId, access_token: accessToken }),
+    }),
+  previewInstagramWebhook: (companyId: string, instagramAppId: string) =>
+    authed<WebhookPreview>(`/companies/${companyId}/channels/instagram/webhook-preview`, {
+      method: 'POST',
+      body: JSON.stringify({ instagram_app_id: instagramAppId }),
+    }),
+  connectInstagram: (companyId: string, instagramAppId: string, accessToken: string, preview: WebhookPreview) =>
+    authed<InstagramConnection>(`/companies/${companyId}/channels/instagram/connect`, {
+      method: 'POST',
+      body: JSON.stringify({
+        instagram_app_id: instagramAppId,
+        access_token: accessToken,
+        id: preview.id,
+        webhook_verify_token: preview.webhook_verify_token,
+      }),
+    }),
   disconnectInstagram: (companyId: string, accountId: string) =>
     authed<ChannelAccount>(`/companies/${companyId}/channels/instagram/${accountId}`, { method: 'DELETE' }),
 }

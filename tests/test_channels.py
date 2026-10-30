@@ -1,8 +1,5 @@
 """Channels API + Instagram connect flow (Instagram HTTP calls are faked)."""
 
-import os
-from urllib.parse import parse_qs, urlparse
-
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -12,7 +9,9 @@ from app.models import (
     Feature, MembershipRole, Permission, Plan, PlanFeature, Role, RolePermission, SocialAccount,
     SocialAccountToken, Subscription, Tenant, TenantMembership, User, UserProfile,
 )
+from app.models import InstagramConnection
 from app.services.instagram_client import InstagramApiError, InstagramClient
+from app.services.instagram_service import InstagramService
 from config.settings import get_settings
 
 PASSWORD = "S3cret-pass!"
@@ -26,6 +25,13 @@ def instagram_settings(monkeypatch):
     monkeypatch.setattr(s, "INSTAGRAM_REDIRECT_URI", "https://example.ngrok-free.app/api/v1/channels/instagram/callback")
     monkeypatch.setattr(s, "ENCRYPTION_KEY", "unit-test-encryption-key")
     monkeypatch.setattr(s, "FRONTEND_URL", "http://localhost:3000")
+
+    def fake_profile(self, ig_id, token):
+        if token == "bad-token":
+            raise InstagramApiError("Invalid OAuth access token")
+        return {"id": ig_id, "username": "the_ai_layer", "name": "The AI Layer", "profile_picture_url": "http://img/p.jpg"}
+
+    monkeypatch.setattr(InstagramClient, "business_profile", fake_profile)
 
 
 class FakeInstagram:
@@ -86,24 +92,76 @@ def headers(client: TestClient, email: str) -> dict:
 
 
 def start(client, world, email="owner@a.com", tenant="ta") -> str:
-    r = client.post(f"/api/v1/companies/{world[tenant].id}/channels/instagram/connect", headers=headers(client, email))
-    assert r.status_code == 200, r.text
-    return parse_qs(urlparse(r.json()["data"]["authorize_url"]).query)["state"][0]
+    users = {"owner@a.com": world["owner"], "agent@a.com": world["agent"], "owner@b.com": world["other_owner"]}
+    return InstagramService.make_state(users[email].id, world[tenant].id)
 
 
 def callback(client, state, code="short-1", **extra):
     return client.get("/api/v1/channels/instagram/callback", params={"code": code, "state": state, **extra}, follow_redirects=False)
 
 
-def test_connect_returns_instagram_authorize_url(client, world):
-    r = client.post(f"/api/v1/companies/{world['ta'].id}/channels/instagram/connect", headers=headers(client, "owner@a.com"))
-    url = urlparse(r.json()["data"]["authorize_url"])
-    q = parse_qs(url.query)
-    assert url.netloc == "www.instagram.com" and url.path == "/oauth/authorize"
-    assert q["client_id"] == ["app-123"] and q["response_type"] == ["code"]
-    assert q["redirect_uri"] == ["https://example.ngrok-free.app/api/v1/channels/instagram/callback"]
-    assert "instagram_business_manage_messages" in q["scope"][0] and q["state"][0]
-    assert "secret-xyz" not in r.text
+def test_connect_stores_pasted_credentials_and_webhook(client, world, db):
+    body = {"instagram_app_id": "17841434828716856", "access_token": "EAA-secret-token"}
+    r = client.post(f"/api/v1/companies/{world['ta'].id}/channels/instagram/connect", json=body, headers=headers(client, "owner@a.com"))
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["instagram_app_id"] == "17841434828716856"
+    assert data["webhook_url"] == f"https://example.ngrok-free.app/api/v1/channels/instagram/webhook/{data['id']}"
+    assert data["webhook_verify_token"] and "EAA-secret-token" not in r.text
+    db.expire_all()
+    row = db.query(InstagramConnection).one()
+    assert CryptoHelper.decrypt(row.access_token_encrypted) == "EAA-secret-token"
+    assert row.tenant_id == world["ta"].id and row.webhook_verify_token == data["webhook_verify_token"]
+
+    again = client.post(
+        f"/api/v1/companies/{world['ta'].id}/channels/instagram/connect",
+        json={"instagram_app_id": "17841434828716856", "access_token": "EAA-rotated"},
+        headers=headers(client, "owner@a.com"),
+    )
+    assert again.status_code == 200
+    assert again.json()["data"]["id"] == data["id"]
+    assert again.json()["data"]["webhook_verify_token"] == data["webhook_verify_token"]
+    db.expire_all()
+    assert db.query(InstagramConnection).count() == 1
+    assert CryptoHelper.decrypt(db.query(InstagramConnection).one().access_token_encrypted) == "EAA-rotated"
+
+    listed = client.get(f"/api/v1/companies/{world['ta'].id}/channels", headers=headers(client, "owner@a.com")).json()["data"]["channels"][0]
+    assert listed["connections"][0]["webhook_url"] == data["webhook_url"]
+    assert listed["connections"][0]["username"] == "the_ai_layer" and listed["connections"][0]["name"] == "The AI Layer"
+    assert "EAA-rotated" not in str(listed)
+
+    challenge = client.get(
+        f"/api/v1/channels/instagram/webhook/{data['id']}",
+        params={"hub.mode": "subscribe", "hub.verify_token": data["webhook_verify_token"], "hub.challenge": "ok-1"},
+    )
+    assert challenge.status_code == 200 and challenge.text == "ok-1"
+    wrong = client.get(
+        f"/api/v1/channels/instagram/webhook/{data['id']}",
+        params={"hub.mode": "subscribe", "hub.verify_token": "other", "hub.challenge": "ok-1"},
+    )
+    assert wrong.status_code == 403
+
+
+def test_verify_then_generate_webhook_then_submit(client, world, db):
+    path = f"/api/v1/companies/{world['ta'].id}/channels/instagram"
+    auth = headers(client, "owner@a.com")
+    bad = client.post(f"{path}/verify", json={"instagram_app_id": "17841434828716856", "access_token": "bad-token"}, headers=auth)
+    assert bad.status_code == 400 and "Invalid OAuth" in bad.json()["error"]
+    ok = client.post(f"{path}/verify", json={"instagram_app_id": "17841434828716856", "access_token": "EAA-real"}, headers=auth)
+    assert ok.status_code == 200 and ok.json()["data"]["username"] == "the_ai_layer"
+    preview = client.post(f"{path}/webhook-preview", json={"instagram_app_id": "17841434828716856"}, headers=auth)
+    assert preview.status_code == 200
+    issued = preview.json()["data"]
+    assert issued["webhook_url"].endswith(f"/webhook/{issued['id']}")
+    saved = client.post(f"{path}/connect", json={
+        "instagram_app_id": "17841434828716856", "access_token": "EAA-real",
+        "id": issued["id"], "webhook_verify_token": issued["webhook_verify_token"],
+    }, headers=auth)
+    assert saved.status_code == 200
+    assert saved.json()["data"]["id"] == issued["id"]
+    assert saved.json()["data"]["webhook_verify_token"] == issued["webhook_verify_token"]
+    db.expire_all()
+    assert db.query(InstagramConnection).one().additional_attributes["name"] == "The AI Layer"
 
 
 def test_agent_cannot_connect_and_non_member_gets_404(client, world):
@@ -183,7 +241,11 @@ def test_disconnect_removes_token(client, world, db):
 
 
 def test_not_configured(client, world, monkeypatch):
-    monkeypatch.setattr(get_settings(), "INSTAGRAM_APP_ID", "")
-    r = client.post(f"/api/v1/companies/{world['ta'].id}/channels/instagram/connect", headers=headers(client, "owner@a.com"))
+    monkeypatch.setattr(get_settings(), "INSTAGRAM_REDIRECT_URI", "")
+    r = client.post(
+        f"/api/v1/companies/{world['ta'].id}/channels/instagram/connect",
+        json={"instagram_app_id": "17841434828716856", "access_token": "EAA-secret-token"},
+        headers=headers(client, "owner@a.com"),
+    )
     assert r.status_code == 503
     assert client.get(f"/api/v1/companies/{world['ta'].id}/channels", headers=headers(client, "owner@a.com")).json()["data"]["channels"][0]["configured"] is False

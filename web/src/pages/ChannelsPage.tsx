@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import { useCompany } from '../layout/CompanyLayout'
-import type { Channel, ChannelAccount } from '../types'
+import type { Channel, ChannelAccount, InstagramConnection, InstagramProfile, WebhookPreview } from '../types'
 
 function InstagramLogo({ size = 40 }: { size?: number }) {
   return (
@@ -33,6 +33,12 @@ export function ChannelsPage() {
   const [canManage, setCanManage] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [appId, setAppId] = useState('')
+  const [accessToken, setAccessToken] = useState('')
+  const [profile, setProfile] = useState<InstagramProfile | null>(null)
+  const [webhook, setWebhook] = useState<WebhookPreview | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
 
   const load = useCallback(() => {
     api
@@ -55,14 +61,84 @@ export function ChannelsPage() {
     setParams({}, { replace: true })
   }, [params, setParams])
 
-  async function connect(channel: Channel) {
-    setBusy(channel.key)
-    setNotice(null)
+  function openConnect() {
+    setAppId('')
+    setAccessToken('')
+    setProfile(null)
+    setWebhook(null)
+    setFormError(null)
+    setModalOpen(true)
+  }
+
+  function editCredentials(nextAppId: string, nextToken: string) {
+    setAppId(nextAppId)
+    setAccessToken(nextToken)
+    setProfile(null)
+    setWebhook(null)
+    setFormError(null)
+  }
+
+  async function verifyAccount() {
+    setBusy('verify')
+    setFormError(null)
     try {
-      const { authorize_url } = await api.connectInstagram(company.id)
-      window.location.href = authorize_url // leave the app and log in on Instagram
+      setProfile(await api.verifyInstagram(company.id, appId.trim(), accessToken.trim()))
+      setWebhook(null)
     } catch (e) {
-      setNotice({ kind: 'error', text: e instanceof ApiError ? e.message : 'Could not start the connection.' })
+      setProfile(null)
+      setFormError(e instanceof ApiError ? e.message : 'Could not verify this Instagram account.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function generateWebhook() {
+    setBusy('webhook')
+    setFormError(null)
+    try {
+      setWebhook(await api.previewInstagramWebhook(company.id, appId.trim()))
+    } catch (e) {
+      setFormError(e instanceof ApiError ? e.message : 'Could not generate the webhook.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function connect(event: FormEvent) {
+    event.preventDefault()
+    if (!profile || !webhook) return
+    setBusy('instagram')
+    setFormError(null)
+    try {
+      await api.connectInstagram(company.id, appId.trim(), accessToken.trim(), webhook)
+      setModalOpen(false)
+      setNotice({ kind: 'ok', text: 'Instagram account connected.' })
+      load()
+    } catch (e) {
+      setFormError(e instanceof ApiError ? e.message : 'Could not save the connection.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function copy(value: string) {
+    try {
+      await navigator.clipboard.writeText(value)
+      setNotice({ kind: 'ok', text: 'Copied.' })
+    } catch {
+      setNotice({ kind: 'error', text: 'Could not copy. Select the value and copy it manually.' })
+    }
+  }
+
+  async function disconnectConnection(connection: InstagramConnection) {
+    if (!window.confirm(`Disconnect Instagram account ${connection.instagram_app_id}?`)) return
+    setBusy(connection.id)
+    try {
+      await api.disconnectInstagram(company.id, connection.id)
+      load()
+    } catch (e) {
+      setNotice({ kind: 'error', text: e instanceof ApiError ? e.message : 'Could not disconnect.' })
+    } finally {
       setBusy(null)
     }
   }
@@ -96,7 +172,9 @@ export function ChannelsPage() {
         {channels?.map((ch) => {
           const Logo = LOGOS[ch.key]
           const live = ch.accounts.filter((a) => a.status !== 'disconnected')
-          const atLimit = ch.limit !== null && live.length >= ch.limit
+          const connections = ch.connections ?? []
+          const connectedCount = live.length + connections.length
+          const atLimit = ch.limit !== null && connectedCount >= ch.limit
           return (
             <section className="card channel-card" key={ch.key} aria-label={ch.name}>
               <header className="channel-head">
@@ -104,7 +182,7 @@ export function ChannelsPage() {
                 <div>
                   <h2>{ch.name}</h2>
                   <span className="muted small">
-                    {live.length} connected{ch.limit !== null ? ` · plan allows ${ch.limit}` : ''}
+                    {connectedCount} connected{ch.limit !== null ? ` · plan allows ${ch.limit}` : ''}
                   </span>
                 </div>
               </header>
@@ -130,10 +208,14 @@ export function ChannelsPage() {
                 </ul>
               )}
 
-              {!ch.configured && <p className="muted small">Instagram is not configured on the server yet.</p>}
+              {connections.map((connection) => (
+                <ConnectionDetails key={connection.id} connection={connection} canManage={canManage} busy={busy === connection.id} onCopy={copy} onDisconnect={() => disconnectConnection(connection)} />
+              ))}
+
+              {!ch.configured && <p className="muted small">A public webhook URL is not configured on the server yet.</p>}
               {canManage ? (
-                <button className="btn btn-primary" disabled={!ch.configured || atLimit || busy === ch.key} onClick={() => connect(ch)}>
-                  {busy === ch.key ? 'Redirecting…' : live.length ? 'Connect another account' : 'Connect to Instagram'}
+                <button className="btn btn-primary" disabled={!ch.configured || atLimit || busy === ch.key} onClick={openConnect}>
+                  {connections.length ? 'Connect another account' : 'Connect to Instagram'}
                 </button>
               ) : (
                 <p className="muted small">Ask a company owner or admin to connect channels.</p>
@@ -142,6 +224,88 @@ export function ChannelsPage() {
             </section>
           )
         })}
+      </div>
+
+      {modalOpen && (
+        <div className="modal-backdrop" onClick={() => busy === null && setModalOpen(false)}>
+          <form className="modal" role="dialog" aria-modal="true" aria-labelledby="ig-connect-title" onClick={(e) => e.stopPropagation()} onSubmit={connect}>
+            <h2 id="ig-connect-title">Connect Instagram</h2>
+            <p className="muted small">Enter the Instagram id and access token, verify the profile, then generate the webhook.</p>
+            {formError && <div className="alert" role="alert">{formError}</div>}
+            <label htmlFor="ig-app-id">Instagram app id</label>
+            <input id="ig-app-id" value={appId} onChange={(e) => editCredentials(e.target.value, accessToken)} autoComplete="off" required />
+            <label htmlFor="ig-token">Access token</label>
+            <textarea id="ig-token" value={accessToken} onChange={(e) => editCredentials(appId, e.target.value)} rows={4} autoComplete="off" required />
+            <div className="modal-actions">
+              <button type="button" className="btn" disabled={busy !== null} onClick={() => setModalOpen(false)}>Cancel</button>
+              <button type="button" className="btn btn-primary" disabled={busy !== null || !appId.trim() || !accessToken.trim()} onClick={verifyAccount}>
+                {busy === 'verify' ? 'Verifying…' : 'Verify'}
+              </button>
+            </div>
+            {profile && (
+              <div className="profile-found">
+                {profile.profile_picture_url ? <img className="avatar-img" src={profile.profile_picture_url} alt="" /> : <span className="avatar">{(profile.username ?? profile.name ?? '?')[0].toUpperCase()}</span>}
+                <span className="account-meta">
+                  <strong>{profile.name || profile.username || profile.id}</strong>
+                  <small className="muted">{profile.username ? `@${profile.username} · ` : ''}Profile found</small>
+                </span>
+              </div>
+            )}
+            {profile && !webhook && (
+              <button type="button" className="btn btn-primary" disabled={busy !== null} onClick={generateWebhook}>
+                {busy === 'webhook' ? 'Generating…' : 'Generate webhook'}
+              </button>
+            )}
+            {webhook && (
+              <>
+                <label className="small">Webhook URL</label>
+                <div className="copy-row">
+                  <code>{webhook.webhook_url}</code>
+                  <button type="button" className="btn btn-small" onClick={() => copy(webhook.webhook_url)}>Copy</button>
+                </div>
+                <label className="small">Verify token</label>
+                <div className="copy-row">
+                  <code>{webhook.webhook_verify_token}</code>
+                  <button type="button" className="btn btn-small" onClick={() => copy(webhook.webhook_verify_token)}>Copy</button>
+                </div>
+                <button type="submit" className="btn btn-primary" disabled={busy !== null}>{busy === 'instagram' ? 'Saving…' : 'Submit'}</button>
+              </>
+            )}
+          </form>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ConnectionDetails({ connection, canManage, busy, onCopy, onDisconnect }: {
+  connection: InstagramConnection
+  canManage: boolean
+  busy: boolean
+  onCopy: (value: string) => void
+  onDisconnect: () => void
+}) {
+  return (
+    <div className="connection-box">
+      <div className="connection-head">
+        {connection.profile_picture_url ? <img className="avatar-img" src={connection.profile_picture_url} alt="" /> : <span className="avatar">{(connection.username ?? connection.name ?? '?')[0].toUpperCase()}</span>}
+        <span className="account-meta">
+          <strong>{connection.name || connection.username || connection.instagram_app_id}</strong>
+          <small className="muted">{connection.username ? `@${connection.username} · ` : ''}Connected</small>
+        </span>
+        {canManage && (
+          <button className="btn btn-small" disabled={busy} onClick={onDisconnect}>Disconnect</button>
+        )}
+      </div>
+      <label className="small">Webhook URL</label>
+      <div className="copy-row">
+        <code>{connection.webhook_url}</code>
+        <button type="button" className="btn btn-small" onClick={() => onCopy(connection.webhook_url)}>Copy</button>
+      </div>
+      <label className="small">Verify token</label>
+      <div className="copy-row">
+        <code>{connection.webhook_verify_token}</code>
+        <button type="button" className="btn btn-small" onClick={() => onCopy(connection.webhook_verify_token)}>Copy</button>
       </div>
     </div>
   )

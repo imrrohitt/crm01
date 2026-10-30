@@ -36,12 +36,38 @@ export interface ChannelAccount {
   connected_at: string
 }
 
+export interface InstagramProfile {
+  id: string
+  username: string | null
+  name: string | null
+  profile_picture_url: string | null
+}
+
+export interface WebhookPreview {
+  id: string
+  webhook_url: string
+  webhook_verify_token: string
+}
+
+export interface InstagramConnection {
+  id: string
+  instagram_app_id: string
+  username: string | null
+  name: string | null
+  profile_picture_url: string | null
+  webhook_url: string
+  webhook_verify_token: string
+  status: string
+  created_at: string
+}
+
 export interface Channel {
   key: string
   name: string
   configured: boolean
   limit: number | null
   accounts: ChannelAccount[]
+  connections?: InstagramConnection[]
 }
 
 export interface ChannelsResponse {

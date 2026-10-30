@@ -6,16 +6,25 @@ with ?code&state -> complete_connection() verifies state, exchanges the code, st
 account and the encrypted token.
 """
 
+import hashlib
+import hmac
+import logging
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import urlsplit
 
 from jose import JWTError, jwt
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.helpers.crypto_helper import KEY_VERSION, CryptoHelper
-from app.models import Permission, RolePermission, MembershipRole, SocialAccount, SocialAccountToken, Tenant, TenantMembership
+from app.helpers.crypto_helper import KEY_VERSION, CryptoError, CryptoHelper
+from app.models import (
+    InstagramConnection, Permission, RolePermission, MembershipRole, SocialAccount, SocialAccountToken,
+    Tenant, TenantMembership, WebhookEvent,
+)
 from app.services.base_service import BaseService
 from app.services.entitlement_service import EntitlementService
 from app.services.instagram_client import InstagramApiError, InstagramClient
@@ -23,14 +32,17 @@ from config.settings import get_settings
 
 STATE_TTL_MINUTES = 10
 DEFAULT_TOKEN_LIFETIME = 60 * 24 * 3600  # long-lived tokens last 60 days
+logger = logging.getLogger(__name__)
+_MESSAGE_KEYS = ("message", "postback", "read", "reaction", "referral")
 
 
 class ConnectError(Exception):
     """User-facing reason a connection could not be completed."""
 
-    def __init__(self, message: str) -> None:
+    def __init__(self, message: str, status: int = 400) -> None:
         super().__init__(message)
         self.message = message
+        self.status = status
 
 
 class InstagramService(BaseService):
@@ -65,8 +77,130 @@ class InstagramService(BaseService):
     # --- start ---
     def connect_url(self, user_id: uuid.UUID, tenant_id: uuid.UUID) -> str:
         if not self.client.configured:
-            raise ConnectError("Instagram is not configured on the server yet.")
+            raise ConnectError("Instagram is not configured on the server yet.", status=503)
         return self.client.authorize_url(self.make_state(user_id, tenant_id))
+
+    def verify_account(self, app_id: str, access_token: str) -> dict[str, Any]:
+        """Confirm the access token can read this Instagram professional account."""
+        app_id, access_token = app_id.strip(), access_token.strip()
+        if not app_id or not access_token:
+            raise ConnectError("Enter the Instagram app id and access token.")
+        try:
+            profile = self.client.business_profile(app_id, access_token)
+        except InstagramApiError as e:
+            raise ConnectError(e.message or "Instagram could not load this account.") from e
+        if str(profile.get("id") or "") != app_id:
+            raise ConnectError("This access token does not belong to that Instagram account.")
+        return {
+            "id": app_id,
+            "username": profile.get("username"),
+            "name": profile.get("name"),
+            "profile_picture_url": profile.get("profile_picture_url"),
+        }
+
+    def issue_webhook(self, tenant_id: uuid.UUID, app_id: str) -> dict[str, str]:
+        """Webhook URL and verify token for this Instagram id. Nothing is saved until submit."""
+        app_id = app_id.strip()
+        if not app_id:
+            raise ConnectError("Enter the Instagram app id.")
+        base = self.public_base()
+        if not base:
+            raise ConnectError("A public webhook URL is not configured on the server yet.", status=503)
+        existing = self.db.execute(
+            select(InstagramConnection).where(
+                InstagramConnection.tenant_id == tenant_id, InstagramConnection.instagram_app_id == app_id
+            )
+        ).scalars().first()
+        connection_id = existing.id if existing else uuid.uuid4()
+        verify_token = existing.webhook_verify_token if existing else secrets.token_urlsafe(32)
+        return {
+            "id": str(connection_id),
+            "webhook_verify_token": verify_token,
+            "webhook_url": f"{base}/api/v1/channels/instagram/webhook/{connection_id}",
+        }
+
+    def save_manual_connection(
+        self,
+        user_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        app_id: str,
+        access_token: str,
+        connection_id: str | None = None,
+        webhook_verify_token: str | None = None,
+    ) -> InstagramConnection:
+        """Store a pasted Instagram app id and access token, and issue a webhook for it."""
+        app_id, access_token = app_id.strip(), access_token.strip()
+        if not app_id or not access_token:
+            raise ConnectError("Enter the Instagram app id and access token.")
+        base = self.public_base()
+        if not base:
+            raise ConnectError("A public webhook URL is not configured on the server yet.", status=503)
+        profile = self.verify_account(app_id, access_token)
+
+        rows = list(self.db.execute(
+            select(InstagramConnection).where(InstagramConnection.instagram_app_id == app_id)
+        ).scalars())
+        existing = next((row for row in rows if row.tenant_id == tenant_id), None)
+        if any(row.tenant_id != tenant_id and row.status != "disconnected" for row in rows):
+            raise ConnectError("This Instagram account is already connected to another company.", status=409)
+        if existing is None or existing.status == "disconnected":
+            self._check_limit(tenant_id)
+
+        try:
+            encrypted = CryptoHelper.encrypt(access_token)
+        except CryptoError as e:
+            raise ConnectError(e.args[0] if e.args else "Could not store the access token.", status=503) from e
+
+        issued_id = self._issued_id(connection_id)
+        issued_token = (webhook_verify_token or "").strip()
+        if existing is None:
+            if issued_id and self.db.get(InstagramConnection, issued_id) is not None:
+                raise ConnectError("Generate the webhook again.")
+            connection = InstagramConnection(
+                id=issued_id or uuid.uuid4(),
+                tenant_id=tenant_id,
+                instagram_app_id=app_id,
+                access_token_encrypted=encrypted,
+                key_version=KEY_VERSION,
+                webhook_verify_token=issued_token or secrets.token_urlsafe(32),
+                webhook_url="",
+                status="connected",
+                connected_by_user_id=user_id,
+            )
+            self.db.add(connection)
+            self.db.flush()
+        else:
+            connection = existing
+            connection.access_token_encrypted = encrypted
+            connection.key_version = KEY_VERSION
+            connection.status = "connected"
+            connection.connected_by_user_id = user_id
+            if issued_token:
+                connection.webhook_verify_token = issued_token
+        connection.webhook_url = f"{base}/api/v1/channels/instagram/webhook/{connection.id}"
+        attrs = dict(connection.additional_attributes or {})
+        attrs.update({"username": profile.get("username"), "name": profile.get("name"), "profile_picture_url": profile.get("profile_picture_url")})
+        connection.additional_attributes = attrs
+        self.db.commit()
+        self.db.refresh(connection)
+        return connection
+
+    @staticmethod
+    def _issued_id(connection_id: str | None) -> uuid.UUID | None:
+        if not connection_id:
+            return None
+        try:
+            return uuid.UUID(str(connection_id))
+        except ValueError:
+            raise ConnectError("Generate the webhook again.")
+
+    @staticmethod
+    def public_base() -> str:
+        """Origin of INSTAGRAM_REDIRECT_URI, which is the public https host (ngrok in development)."""
+        parts = urlsplit(get_settings().INSTAGRAM_REDIRECT_URI.strip())
+        if not parts.scheme or not parts.netloc:
+            return ""
+        return f"{parts.scheme}://{parts.netloc}"
 
     # --- finish ---
     def complete_connection(self, code: str, state: str) -> SocialAccount:
@@ -150,20 +284,42 @@ class InstagramService(BaseService):
         limit = EntitlementService(self.db).features(tenant_id).get("instagram_accounts")
         if not isinstance(limit, int) or isinstance(limit, bool):
             return
-        used = self.db.execute(
+        if self._used_instagram_slots(tenant_id) >= limit:
+            raise ConnectError(f"Your plan allows {limit} Instagram account(s). Disconnect one or upgrade your plan.")
+
+    def _used_instagram_slots(self, tenant_id: uuid.UUID) -> int:
+        social = self.db.execute(
             select(func.count()).select_from(SocialAccount).where(
                 SocialAccount.tenant_id == tenant_id, SocialAccount.platform == "instagram", SocialAccount.status != "disconnected"
             )
         ).scalar() or 0
-        if used >= limit:
-            raise ConnectError(f"Your plan allows {limit} Instagram account(s). Disconnect one or upgrade your plan.")
+        manual = self.db.execute(
+            select(func.count()).select_from(InstagramConnection).where(
+                InstagramConnection.tenant_id == tenant_id, InstagramConnection.status != "disconnected"
+            )
+        ).scalar() or 0
+        return int(social) + int(manual)
 
     # --- list / disconnect ---
     def accounts(self, tenant_id: uuid.UUID) -> list[SocialAccount]:
         stmt = select(SocialAccount).where(SocialAccount.tenant_id == tenant_id, SocialAccount.platform == "instagram").order_by(SocialAccount.connected_at)
         return list(self.db.execute(stmt).scalars().all())
 
-    def disconnect(self, tenant_id: uuid.UUID, account_id: uuid.UUID) -> SocialAccount | None:
+    def connections(self, tenant_id: uuid.UUID) -> list[InstagramConnection]:
+        stmt = select(InstagramConnection).where(
+            InstagramConnection.tenant_id == tenant_id, InstagramConnection.status != "disconnected"
+        ).order_by(InstagramConnection.created_at)
+        return list(self.db.execute(stmt).scalars().all())
+
+    def disconnect(self, tenant_id: uuid.UUID, account_id: uuid.UUID) -> SocialAccount | InstagramConnection | None:
+        connection = self.db.get(InstagramConnection, account_id)
+        if connection is not None:
+            if connection.tenant_id != tenant_id:
+                return None
+            connection.status = "disconnected"
+            self.db.commit()
+            self.db.refresh(connection)
+            return connection
         account = self.db.get(SocialAccount, account_id)
         if account is None or account.tenant_id != tenant_id:
             return None
@@ -181,7 +337,87 @@ class InstagramService(BaseService):
         return {
             "key": "instagram",
             "name": "Instagram",
-            "configured": self.client.configured,
+            "configured": bool(self.public_base()),
             "limit": limit if isinstance(limit, int) and not isinstance(limit, bool) else None,
             "accounts": [a.to_public() for a in accounts],
+            "connections": [c.to_public() for c in self.connections(tenant_id)],
         }
+
+    # --- webhooks (Meta calls these; no logged-in user) ---
+    def signature_ok(self, raw: bytes, header: str | None) -> bool:
+        """X-Hub-Signature-256 is checked only when an app secret is configured."""
+        secret = get_settings().INSTAGRAM_APP_SECRET
+        if not secret:
+            return True
+        if not header or not header.startswith("sha256="):
+            return False
+        digest = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(header.removeprefix("sha256="), digest)
+
+    def record_webhook(self, raw: bytes, payload: dict[str, Any], connection: InstagramConnection | None = None) -> None:
+        """Store one inbound delivery. A Meta retry of the same body is ignored."""
+        event_id = hashlib.sha256(raw).hexdigest()
+        already = self.db.execute(
+            select(WebhookEvent.id).where(WebhookEvent.provider == "meta", WebhookEvent.provider_event_id == event_id)
+        ).first()
+        if already:
+            return
+        account = self._account_for_payload(payload)
+        self._log_messages(payload)
+        tenant_id = account.tenant_id if account else (connection.tenant_id if connection else None)
+        self.db.add(
+            WebhookEvent(
+                provider="meta",
+                provider_event_id=event_id,
+                tenant_id=tenant_id,
+                social_account_id=account.id if account else None,
+                event_type=self._event_type(payload),
+                payload=payload,
+                status="received",
+                additional_attributes={"instagram_connection_id": str(connection.id)} if connection else {},
+            )
+        )
+        try:
+            self.db.commit()
+        except IntegrityError:
+            self.db.rollback()
+
+    def _account_for_payload(self, payload: dict[str, Any]) -> SocialAccount | None:
+        for entry in payload.get("entry") or []:
+            if not isinstance(entry, dict) or not entry.get("id"):
+                continue
+            account = self.db.execute(
+                select(SocialAccount).where(
+                    SocialAccount.platform == "instagram",
+                    SocialAccount.platform_account_id == str(entry["id"]),
+                )
+            ).scalars().first()
+            if account:
+                return account
+        return None
+
+    @staticmethod
+    def _event_type(payload: dict[str, Any]) -> str:
+        for entry in payload.get("entry") or []:
+            if not isinstance(entry, dict):
+                continue
+            for item in entry.get("messaging") or []:
+                if not isinstance(item, dict):
+                    continue
+                for key in _MESSAGE_KEYS:
+                    if key in item:
+                        return key
+        return str(payload.get("object") or "instagram")
+
+    @staticmethod
+    def _log_messages(payload: dict[str, Any]) -> None:
+        for entry in payload.get("entry") or []:
+            if not isinstance(entry, dict):
+                continue
+            for item in entry.get("messaging") or []:
+                if not isinstance(item, dict):
+                    continue
+                message = item.get("message") or {}
+                text = message.get("text") if isinstance(message, dict) else None
+                sender = (item.get("sender") or {}).get("id")
+                logger.info("instagram webhook entry=%s from=%s text=%s", entry.get("id"), sender, text)
