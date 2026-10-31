@@ -8,8 +8,11 @@ and defines startup/shutdown events. Includes health check endpoint.
 from contextlib import asynccontextmanager
 from typing import Any
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from config.settings import get_settings
 from config.database import engine
@@ -59,6 +62,10 @@ def create_app() -> FastAPI:
 
     # Register all routes
     draw_routes(app)
+
+    pictures = Path(__file__).resolve().parent / "profile_pictures"
+    pictures.mkdir(parents=True, exist_ok=True)
+    app.mount("/profile-pictures", StaticFiles(directory=pictures), name="profile-pictures")
 
     return app
 

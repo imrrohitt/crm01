@@ -22,6 +22,10 @@ demo_app/
 .env
 *.local
 
+# Downloaded Instagram profile photos (paths are stored in the database)
+profile_pictures/*
+!profile_pictures/.gitkeep
+
 # IDE
 .idea/
 .vscode/

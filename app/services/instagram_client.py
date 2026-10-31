@@ -166,6 +166,21 @@ class InstagramClient:
             url = (data.get("paging") or {}).get("next")
         return threads
 
+    def send_text(self, ig_id: str, recipient_id: str, token: str, text: str, tag: str | None = None) -> dict[str, Any]:
+        """Send one text DM from the professional account. Returns {recipient_id, message_id}.
+
+        tag=HUMAN_AGENT is Instagram's way to reply up to 7 days after the customer's last message.
+        """
+        payload: dict[str, Any] = {"recipient": {"id": recipient_id}, "message": {"text": text}}
+        if tag:
+            payload["tag"] = tag
+        return self._request(
+            "POST",
+            f"{FACEBOOK_GRAPH_URL}/{self.settings.INSTAGRAM_API_VERSION}/{ig_id}/messages",
+            params={"access_token": token},
+            json=payload,
+        )
+
     def user_profile(self, igsid: str, token: str) -> dict[str, Any]:
         """Name, photo, and public stats for someone who messaged this account.
 

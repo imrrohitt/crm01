@@ -126,6 +126,8 @@ export interface ConversationMessage {
   direction: 'inbound' | 'outbound'
   content: string | null
   message_type: string
+  status: string
+  send_error: string | null
   sent_at: string | null
 }
 

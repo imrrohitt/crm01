@@ -140,4 +140,9 @@ export const api = {
   conversations: (companyId: string) => authed<ConversationSummary[]>(`/companies/${companyId}/conversations`),
   conversation: (companyId: string, conversationId: string) =>
     authed<ConversationDetail>(`/companies/${companyId}/conversations/${conversationId}`),
+  sendMessage: (companyId: string, conversationId: string, text: string) =>
+    authed<ConversationDetail>(`/companies/${companyId}/conversations/${conversationId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
 }

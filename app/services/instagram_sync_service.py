@@ -15,6 +15,10 @@ from app.helpers.crypto_helper import CryptoHelper
 from app.models import Contact, Conversation, InstagramConnection, Message, SocialAccount
 from app.services.instagram_client import InstagramApiError, InstagramClient
 from app.services.instagram_service import ConnectError
+from app.services.profile_picture_store import save_profile_picture
+
+
+TEXT_LIMIT = 1000
 
 
 class InstagramSyncService:
@@ -79,6 +83,99 @@ class InstagramSyncService:
         previews = self._latest_messages([row.id for row in rows])
         return [self._conversation_public(row, contacts.get(row.contact_id), previews.get(row.id)) for row in rows]
 
+    def queue_reply(self, tenant_id: uuid.UUID, conversation_id: uuid.UUID, membership_id: uuid.UUID, text: str) -> uuid.UUID:
+        """Store an outbound message as queued. The request returns after this; Celery sends it."""
+        body = text.strip()
+        if not body:
+            raise ConnectError("Write a message before sending.")
+        if len(body) > TEXT_LIMIT:
+            raise ConnectError(f"Instagram messages can be at most {TEXT_LIMIT} characters.")
+        conversation = self.db.get(Conversation, conversation_id)
+        if conversation is None or conversation.tenant_id != tenant_id:
+            raise ConnectError("Conversation not found.", status=404)
+        contact = self.db.get(Contact, conversation.contact_id)
+        if contact is None or not contact.platform_user_id:
+            raise ConnectError("This contact has no Instagram id.")
+        account = self.db.get(SocialAccount, conversation.social_account_id)
+        connection = None
+        if account is not None:
+            connection = self.db.execute(
+                select(InstagramConnection).where(
+                    InstagramConnection.tenant_id == tenant_id,
+                    InstagramConnection.instagram_app_id == account.platform_account_id,
+                    InstagramConnection.status == "connected",
+                )
+            ).scalars().first()
+        if connection is None:
+            raise ConnectError("Instagram account is not connected.", status=404)
+        now = datetime.now(timezone.utc)
+        message = Message(
+            tenant_id=tenant_id,
+            social_account_id=conversation.social_account_id,
+            conversation_id=conversation.id,
+            direction="outbound",
+            sender_type="agent",
+            sender_membership_id=membership_id,
+            content=body,
+            message_type="text",
+            status="queued",
+            sent_at=now,
+        )
+        self.db.add(message)
+        conversation.last_message_at = now
+        contact.last_interaction_at = now
+        self.db.commit()
+        return message.id
+
+    def deliver(self, message_id: uuid.UUID) -> dict[str, str]:
+        """Send one queued message. Called by the Celery job, never by the HTTP request."""
+        message = self.db.get(Message, message_id)
+        if message is None or message.status != "queued":
+            return {"status": message.status if message else "missing"}
+        conversation = self.db.get(Conversation, message.conversation_id)
+        contact = self.db.get(Contact, conversation.contact_id) if conversation else None
+        account = self.db.get(SocialAccount, message.social_account_id)
+        connection = None
+        if account is not None:
+            connection = self.db.execute(
+                select(InstagramConnection).where(
+                    InstagramConnection.tenant_id == message.tenant_id,
+                    InstagramConnection.instagram_app_id == account.platform_account_id,
+                    InstagramConnection.status == "connected",
+                )
+            ).scalars().first()
+        if connection is None or contact is None or not contact.platform_user_id:
+            self._mark_failed(message, "Instagram account is not connected.")
+            return {"status": "failed"}
+        token = CryptoHelper.decrypt(connection.access_token_encrypted)
+        text = message.content or ""
+        try:
+            result = self.client.send_text(connection.instagram_app_id, contact.platform_user_id, token, text)
+        except InstagramApiError as exc:
+            if "outside of allowed window" not in exc.message.lower():
+                if "could not reach" in exc.message.lower():
+                    raise
+                self._mark_failed(message, exc.message)
+                return {"status": "failed"}
+            try:
+                result = self.client.send_text(connection.instagram_app_id, contact.platform_user_id, token, text, tag="HUMAN_AGENT")
+            except InstagramApiError as tagged:
+                if "could not reach" in tagged.message.lower():
+                    raise
+                self._mark_failed(message, "Instagram only accepts a reply within 24 hours of this person's last message.")
+                return {"status": "failed"}
+        message.external_message_id = str(result.get("message_id") or "") or None
+        message.status = "sent"
+        message.sent_at = datetime.now(timezone.utc)
+        conversation.last_message_at = message.sent_at
+        self.db.commit()
+        return {"status": "sent"}
+
+    def fail_send(self, message_id: uuid.UUID, reason: str) -> None:
+        message = self.db.get(Message, message_id)
+        if message is not None and message.status == "queued":
+            self._mark_failed(message, reason)
+
     def conversation(self, tenant_id: uuid.UUID, conversation_id: uuid.UUID) -> dict[str, Any] | None:
         row = self.db.get(Conversation, conversation_id)
         if row is None or row.tenant_id != tenant_id:
@@ -130,8 +227,9 @@ class InstagramSyncService:
         row.username = profile.get("username") or person.get("username") or row.username
         row.display_name = profile.get("name") or person.get("name") or row.username or row.display_name
         picture = profile.get("profile_pic") or person.get("profile_pic")
-        if picture:
-            row.profile_picture_url = picture
+        stored = save_profile_picture(platform_user_id, picture) if picture else None
+        if stored:
+            row.profile_picture_url = stored
         extra = dict(row.custom_fields or {})
         for key in ("follower_count", "is_user_follow_business", "is_business_follow_user", "is_verified_user"):
             if profile.get(key) is not None:
@@ -147,9 +245,13 @@ class InstagramSyncService:
         except InstagramApiError:
             return
         attrs = dict(connection.additional_attributes or {})
-        for source, target in (("username", "username"), ("name", "name"), ("profile_picture_url", "profile_picture_url")):
-            if profile.get(source):
-                attrs[target] = profile[source]
+        if profile.get("username"):
+            attrs["username"] = profile["username"]
+        if profile.get("name"):
+            attrs["name"] = profile["name"]
+        stored = save_profile_picture(connection.instagram_app_id, profile.get("profile_picture_url") or "")
+        if stored:
+            attrs["profile_picture_url"] = stored
         connection.additional_attributes = attrs
 
     def _upsert_conversation(self, connection: InstagramConnection, account_id: uuid.UUID, contact: Contact, external_id: str) -> tuple[Conversation, bool]:
@@ -341,6 +443,13 @@ class InstagramSyncService:
             "you_follow": bool(data.get("is_business_follow_user")),
         }
 
+    def _mark_failed(self, message: Message, reason: str) -> None:
+        message.status = "failed"
+        extra = dict(message.additional_attributes or {})
+        extra["send_error"] = reason[:500]
+        message.additional_attributes = extra
+        self.db.commit()
+
     @staticmethod
     def _message_public(row: Message) -> dict[str, Any]:
         return {
@@ -348,5 +457,7 @@ class InstagramSyncService:
             "direction": row.direction,
             "content": row.content,
             "message_type": row.message_type,
+            "status": row.status,
+            "send_error": (row.additional_attributes or {}).get("send_error"),
             "sent_at": row.sent_at,
         }

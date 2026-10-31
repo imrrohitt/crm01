@@ -140,6 +140,7 @@ def draw_routes(app: FastAPI) -> None:
         route(router, "POST", "/companies/{company_id:uuid}/contacts/instagram/{connection_id:uuid}/sync", ContactsController, "enable_sync")
         route(router, "GET", "/companies/{company_id:uuid}/conversations", ConversationsController, "index")
         route(router, "GET", "/companies/{company_id:uuid}/conversations/{conversation_id:uuid}", ConversationsController, "show")
+        route(router, "POST", "/companies/{company_id:uuid}/conversations/{conversation_id:uuid}/messages", ConversationsController, "reply")
         route(router, "POST", "/companies/{company_id:uuid}/channels/instagram/verify", ChannelsController, "verify_instagram")
         route(router, "POST", "/companies/{company_id:uuid}/channels/instagram/webhook-preview", ChannelsController, "preview_instagram_webhook")
         route(router, "POST", "/companies/{company_id:uuid}/channels/instagram/connect", ChannelsController, "connect_instagram")

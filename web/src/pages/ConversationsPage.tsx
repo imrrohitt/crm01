@@ -9,12 +9,22 @@ import type { ConversationDetail, ConversationSummary } from '../types'
 
 type Filter = 'all' | 'needs_reply' | 'replied'
 
+function applyPreview(rows: ConversationSummary[] | null, detail: ConversationDetail, text: string): ConversationSummary[] | null {
+  if (!rows) return rows
+  const next = rows.map((row) => row.id === detail.id
+    ? { ...row, last_message: text, last_direction: 'outbound' as const, last_message_at: detail.last_message_at }
+    : row)
+  return [...next].sort((a, b) => (b.last_message_at || '').localeCompare(a.last_message_at || ''))
+}
+
 function useConversations() {
   const company = useCompany()
   const [rows, setRows] = useState<ConversationSummary[] | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [selected, setSelected] = useState<ConversationDetail | null>(null)
   const [opening, setOpening] = useState(false)
+  const [sending, setSending] = useState(false)
+  const pending = selected?.messages.some((message) => message.status === 'queued') ?? false
 
   useEffect(() => {
     api.conversations(company.id).then(setRows).catch((e) => setNotice(e instanceof ApiError ? e.message : 'Could not load conversations.'))
@@ -32,7 +42,36 @@ function useConversations() {
     }
   }, [company.id])
 
-  return { rows, notice, selected, setSelected, open, opening }
+  const send = useCallback(async (text: string) => {
+    if (!selected) return
+    setSending(true)
+    try {
+      const detail = await api.sendMessage(company.id, selected.id, text)
+      setSelected(detail)
+      setRows((current) => applyPreview(current, detail, text))
+    } finally {
+      setSending(false)
+    }
+  }, [company.id, selected])
+
+  useEffect(() => {
+    if (!selected || !pending) return
+    const id = selected.id
+    const timer = window.setInterval(async () => {
+      try {
+        const next = await api.conversation(company.id, id)
+        setSelected((current) => (current?.id === id ? next : current))
+        const preview = next.messages[next.messages.length - 1]
+        if (preview) setRows((current) => applyPreview(current, next, preview.content || ''))
+        if (!next.messages.some((message) => message.status === 'queued')) window.clearInterval(timer)
+      } catch {
+        /* the next tick tries again while the job is still sending */
+      }
+    }, 1500)
+    return () => window.clearInterval(timer)
+  }, [company.id, selected, pending])
+
+  return { rows, notice, selected, setSelected, open, opening, send, sending }
 }
 
 function useFiltered(rows: ConversationSummary[] | null) {
@@ -70,7 +109,7 @@ function FilterChips({ filter, setFilter, counts }: { filter: Filter; setFilter:
 
 /** Chat-style inbox: list on the left, open thread on the right. */
 export function InboxPage() {
-  const { rows, notice, selected, setSelected, open, opening } = useConversations()
+  const { rows, notice, selected, setSelected, open, opening, send, sending } = useConversations()
   const { query, setQuery, filter, setFilter, counts, filtered } = useFiltered(rows)
   const [params] = useSearchParams()
   const wanted = params.get('c')
@@ -132,7 +171,7 @@ export function InboxPage() {
             <>
               <ThreadHead conversation={selected} onClose={() => setSelected(null)} />
               <ThreadMessages conversation={selected} />
-              <Composer />
+              <Composer onSend={send} sending={sending} />
             </>
           )}
         </section>
@@ -143,7 +182,7 @@ export function InboxPage() {
 
 /** Table view of all threads; clicking one opens the messages in a drawer. */
 export function ConversationsPage() {
-  const { rows, notice, selected, setSelected, open } = useConversations()
+  const { rows, notice, selected, setSelected, open, send, sending } = useConversations()
   const { query, setQuery, filter, setFilter, counts, filtered } = useFiltered(rows)
 
   useEffect(() => {
@@ -215,7 +254,7 @@ export function ConversationsPage() {
             <div className="drawer-body flush">
               <ThreadHead conversation={selected} />
               <ThreadMessages conversation={selected} />
-              <Composer />
+              <Composer onSend={send} sending={sending} />
             </div>
           </aside>
         </>

@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { ApiError } from '../api/client'
 import { Avatar, personFacts } from './Avatar'
 import { Icon } from './Icon'
 import type { ConversationDetail } from '../types'
@@ -30,20 +32,26 @@ export function ThreadHead({ conversation, onClose }: { conversation: Conversati
 }
 
 export function ThreadMessages({ conversation }: { conversation: ConversationDetail }) {
+  const body = useRef<HTMLDivElement>(null)
   let lastDay = ''
+  useEffect(() => {
+    const node = body.current
+    if (node) node.scrollTop = node.scrollHeight
+  }, [conversation.messages])
   return (
-    <div className="chat-body">
+    <div className="chat-body" ref={body}>
       {conversation.messages.length === 0 && <div className="chat-empty"><strong>No messages yet</strong></div>}
       {conversation.messages.map((m) => {
         const day = m.sent_at ? dayLabel(m.sent_at) : ''
         const sep = day && day !== lastDay
         if (day) lastDay = day
+        const note = m.status === 'queued' ? 'Sending…' : m.status === 'failed' ? (m.send_error || 'Not sent') : m.sent_at ? time(m.sent_at) : ''
         return (
           <div key={m.id} style={{ display: 'contents' }}>
             {sep && <span className="day-sep">{day}</span>}
-            <div className={`bubble ${m.direction === 'outbound' ? 'is-out' : 'is-in'}`}>
+            <div className={`bubble ${m.direction === 'outbound' ? 'is-out' : 'is-in'} ${m.status === 'failed' ? 'is-failed' : ''}`}>
               {m.content || (m.message_type === 'text' ? '' : `[${m.message_type}]`)}
-              {m.sent_at && <small>{time(m.sent_at)}</small>}
+              {note && <small>{note}</small>}
             </div>
           </div>
         )
@@ -52,11 +60,37 @@ export function ThreadMessages({ conversation }: { conversation: ConversationDet
   )
 }
 
-export function Composer() {
+export function Composer({ onSend, sending }: { onSend: (text: string) => Promise<void>; sending: boolean }) {
+  const [text, setText] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    const value = text.trim()
+    if (!value || sending) return
+    setError(null)
+    try {
+      await onSend(value)
+      setText('')
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not send this message.')
+    }
+  }
+
   return (
-    <div className="composer">
-      <input disabled placeholder="Replying from the CRM is coming soon…" aria-label="Reply (coming soon)" />
-      <button className="btn btn-primary" disabled><Icon name="send" size={16} />Send</button>
-    </div>
+    <form className="composer" onSubmit={submit}>
+      {error && <p className="composer-error" role="alert">{error}</p>}
+      <input
+        value={text}
+        maxLength={1000}
+        placeholder="Write a message…"
+        aria-label="Message"
+        disabled={sending}
+        onChange={(event) => setText(event.target.value)}
+      />
+      <button className="btn btn-primary" type="submit" disabled={sending || !text.trim()}>
+        <Icon name="send" size={16} />{sending ? 'Sending' : 'Send'}
+      </button>
+    </form>
   )
 }
