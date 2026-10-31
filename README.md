@@ -1,527 +1,429 @@
-# FastAPI Framework
+<div align="center">
 
-A **clean, production-ready framework** with a convention-based layout: centralized config, models, controller filters, services, background jobs, and a full CLI — **no demo app**, just the stack you need to build on.
+# 📸 insta.crm
+
+### Multi-tenant CRM for Instagram DMs
+
+Connect your Instagram Professional accounts, sync contacts and conversations, and manage them with your team — one workspace per company, with plan-based feature gating and role-based access.
+
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)
+![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-D71F00)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-4169E1?logo=postgresql&logoColor=white)
+![Celery](https://img.shields.io/badge/Celery-5.4-37814A?logo=celery&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6?logo=typescript&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green)
+
+</div>
 
 ---
 
-## Contents
+## Table of contents
 
-- [Quick start](#quick-start)
-- [Background jobs: Celery + Redis](#background-jobs-celery--redis)
+- [Overview](#overview)
+- [Features](#features)
 - [Tech stack](#tech-stack)
-- [Project structure](#project-structure)
-- [Conventions](#conventions)
-- [Configuration](#configuration)
-- [Database](#database)
-- [Running the app](#running-the-app)
-- [CLI reference](#cli-reference)
 - [Architecture](#architecture)
+- [Project structure](#project-structure)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [Connecting Instagram](#connecting-instagram)
+- [API reference](#api-reference)
+- [Data model](#data-model)
+- [Background jobs](#background-jobs)
+- [Web app](#web-app)
+- [CLI reference](#cli-reference)
 - [Testing](#testing)
-- [Adding your first resources](#adding-your-first-resources)
+- [Extending the codebase](#extending-the-codebase)
 - [Deployment](#deployment)
+- [Roadmap](#roadmap)
+- [License](#license)
 
 ---
 
-## Quick start
+## Overview
 
-```bash
-# Clone, enter project, create venv
-cd <your-project-folder>
-python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+**insta.crm** is a SaaS-style CRM built around Instagram direct messages. Agencies, creators and businesses can plug in one or more Instagram Professional accounts, import every DM thread as a **contact** and **conversation**, and receive new messages live through Meta webhooks.
 
-# Install and configure
-pip install -r requirements.txt
-cp .env.example .env
-cp config/database.yml.example config/database.yml   # edit with your DB credentials
+It is **multi-tenant by design**: users are global, *companies* (tenants) are isolated workspaces, and a user can belong to many companies with a different role in each. Tenant isolation is enforced both in the application layer and by the database itself (composite foreign keys).
 
-# Database (optional — framework has no tables by default)
-python manage.py db migrate
-python manage.py db seed
+The backend follows a **Rails-like convention layout** (controllers with `before_action` filters, models with lifecycle callbacks, services, jobs, a single routes file, and a `manage.py` CLI with generators) on top of FastAPI and SQLAlchemy 2.0.
 
-# Run
-python manage.py runserver
-```
+## Features
 
-Then open **http://localhost:8000/health** and **http://localhost:8000/docs** (when `DEBUG=true`).
-
----
-
-## Background jobs: Celery + Redis
-
-Jobs run in a **separate worker process**, not inside the API server. Redis is the message broker and result store, so Redis must be running before you start the worker.
-
-**1. Install and start Redis**
-
-```bash
-# macOS
-brew install redis && brew services start redis
-# Ubuntu/Debian
-sudo apt install redis-server && sudo systemctl start redis-server
-# Docker
-docker run -d -p 6379:6379 --name redis redis:7
-
-redis-cli ping    # -> PONG
-```
-
-**2. Check `.env`** (defaults shown):
-
-```
-CELERY_BROKER_URL=redis://localhost:6379/1
-CELERY_RESULT_BACKEND=redis://localhost:6379/2
-```
-
-**3. Run the processes, each in its own terminal** (virtualenv active):
-
-```bash
-python manage.py runserver                        # API
-python manage.py worker                           # Celery worker, default queue
-python manage.py worker --queue=mailers           # worker for another queue
-python manage.py scheduler                        # Celery Beat (only for periodic tasks)
-```
-
-Raw equivalents: `celery -A config.celery worker -Q default -l info` and `celery -A config.celery beat -l info`. On macOS `manage.py worker` adds `--pool=solo`, because the default prefork pool crashes there; add `--pool=solo` yourself if you run `celery` directly.
-
-**4. Create and enqueue a job**
-
-```bash
-python manage.py generate job send_welcome     # creates app/jobs/send_welcome_job.py
-```
-
-```python
-from app.jobs.send_welcome_job import SendWelcomeJob
-SendWelcomeJob.perform_later(user_id=1)        # queued in Redis, run by the worker
-SendWelcomeJob.perform_now(user_id=1)          # runs inline, no worker needed
-```
-
-Every module in `app/jobs/` is registered automatically; restart the worker after adding or changing a job. Available queues: `default`, `mailers`, `critical`, `low_priority`. In production, run the worker and Beat under a process manager (systemd, supervisor) and point the URLs above at a managed Redis.
-
----
+| Area | What you get |
+|------|--------------|
+| 🔐 **Authentication** | JWT access + refresh tokens, bcrypt password hashing, `/auth/me` |
+| 🏢 **Multi-tenancy** | Companies as isolated workspaces; users join many companies via memberships |
+| 🛡️ **RBAC** | System roles (owner, admin, manager, agent, viewer) mapped to fine-grained permissions such as `conversations.reply` |
+| 💳 **Plans & entitlements** | Starter / Pro plans with feature flags and numeric limits (e.g. `instagram_accounts`); sidebar adapts to the plan |
+| 📲 **Instagram OAuth connect** | Instagram Login flow with CSRF-safe signed `state`; plan limit enforced |
+| 🔑 **Manual connect** | Verify a profile with an access token, get a per-account webhook URL + verify token |
+| 🔒 **Encrypted tokens** | Access tokens encrypted at rest (`ENCRYPTION_KEY`) and never returned by the API |
+| 📥 **Webhooks** | `GET` handshake + `POST` delivery, `X-Hub-Signature-256` HMAC verification, idempotent event storage |
+| 🔄 **Contact & conversation sync** | Background Celery job imports DM threads into contacts, conversations and messages |
+| 🖥️ **React web app** | Login, collapsible sidebar, Channels, Contacts, Conversations, plan-aware navigation |
+| 🧪 **Tests** | Pytest suite covering auth, channels, webhooks, sync, filters and model callbacks |
 
 ## Tech stack
 
-| Layer           | Technology                          |
-|----------------|--------------------------------------|
-| **Language**   | Python 3.11+                         |
-| **Web**        | FastAPI, Uvicorn                     |
-| **ORM**        | SQLAlchemy 2.0                       |
-| **Migrations** | Alembic (timestamped) |
-| **Validation** | Pydantic v2                          |
-| **Database**   | PostgreSQL (config via `database.yml`) |
-| **Queue/Cache**| Redis                                |
-| **Jobs**       | Celery (queues: default, mailers, critical, low_priority) |
-| **Auth**       | JWT (python-jose), Passlib + bcrypt  |
-| **CLI**        | Click (`manage.py`)                  |
-| **Config**     | `.env` + `config/database.yml`       |
-| **Testing**    | Pytest, HTTPX                        |
+| Layer | Technology |
+|-------|------------|
+| Language | Python 3.11+ |
+| API | FastAPI, Uvicorn |
+| ORM / Migrations | SQLAlchemy 2.0, Alembic (timestamped migrations) |
+| Validation | Pydantic v2, pydantic-settings |
+| Database | PostgreSQL 15+ (SQLite in-memory for tests) |
+| Queue / Cache | Redis, Celery (queues: `default`, `mailers`, `critical`, `low_priority`) |
+| Auth | python-jose (JWT), bcrypt |
+| Frontend | React 18, TypeScript, React Router 6, Vite 5 |
+| CLI | Click (`manage.py`) |
+| Testing | Pytest, HTTPX |
 
----
+## Architecture
+
+```
+┌──────────────┐   /api (proxy)   ┌───────────────────────────────────────┐
+│  React + Vite │ ───────────────▶ │  FastAPI                              │
+│  (port 3000)  │ ◀─────────────── │  Middleware → Controllers → Services  │
+└──────────────┘                   │                 │            │        │
+                                   │             Models (ORM)  Jobs (enqueue)
+┌──────────────┐  webhooks / OAuth │                 │            │        │
+│ Instagram /  │ ───────────────▶  └─────────────────┼────────────┼────────┘
+│ Meta Graph   │ ◀───────────────                    ▼            ▼
+└──────────────┘   API calls            ┌────────────────┐   ┌────────────────┐
+        ▲                               │  PostgreSQL    │   │ Redis (broker) │
+        │                               └────────────────┘   └───────┬────────┘
+        │                                                            ▼
+        └──────────────────────────────────────────────────  Celery worker
+                                                           (InstagramSyncJob)
+```
+
+**Request lifecycle:** `config/routes.py` registers each endpoint through `route()` / `resources()`. A wrapper builds the controller, runs its `before_action` filters (authenticate, load membership, check permission), calls the action, then runs `after_action` filters. Business logic lives in **services**; persistence goes through **models**; slow work is pushed to **Celery jobs**.
+
+**Layers**
+
+- **Controllers** — `BaseController` with `params`, `render_json()`, `render_error()` and filters (`@before_action`, `@after_action`, `@skip_before_action`). Concerns: `Authenticatable`, `TenantScoped` (loads the membership for `{company_id}` and checks permissions), `Paginatable`.
+- **Models** — `BaseModel` with callbacks (`@before_save`, `@after_create`, …), `find / find_by / where / create / save / update / destroy`. Mixins: `Timestampable`, `SoftDeletable`, `Sluggable`, `StandardColumns`.
+- **Services** — `BaseService` (`success()` / `failure()`). Key services: `AuthService`, `EntitlementService`, `InstagramService`, `InstagramSyncService`, plus `InstagramClient` (thin Graph API HTTP client).
+- **Jobs** — `BaseJob` with `perform_later`, `perform_now`, retries and queues. `InstagramSyncJob` runs the DM import.
+- **Helpers** — `jwt_helper`, `password_helper`, `crypto_helper` (token encryption), `response_helper`.
+- **Middleware** — `auth_middleware` (JWT → `request.state.current_user`) and `logging_middleware`.
 
 ## Project structure
 
 ```
-.
-├── main.py                      # FastAPI app, lifespan, health check
-├── manage.py                    # CLI: runserver, db, generate, routes, worker, shell
+insta-crm/
+├── main.py                     # FastAPI app, CORS, lifespan, /health
+├── manage.py                   # CLI: runserver, db, generate, routes, worker, scheduler, shell
 ├── alembic.ini
 ├── requirements.txt
 ├── .env.example
 │
 ├── config/
-│   ├── settings.py              # Pydantic Settings from .env
-│   ├── database.yml             # DB config (development/test/production)
-│   ├── database.yml.example     # Template for database.yml
-│   ├── database_yml.py          # Loads database.yml, builds DATABASE_URL
-│   ├── database.py              # Engine, SessionLocal, Base, get_db
-│   ├── celery.py                # Celery app, queues, Beat
-│   └── routes.py                # draw_routes(), resources(), namespace()
+│   ├── settings.py             # Pydantic Settings (.env)
+│   ├── database.yml(.example)  # Per-environment DB config
+│   ├── database_yml.py         # Builds DATABASE_URL from database.yml
+│   ├── database.py             # Engine, SessionLocal, Base, get_db
+│   ├── celery.py               # Celery app, queues, task registration
+│   └── routes.py               # route(), resources(), namespace(), draw_routes()
 │
 ├── app/
-│   ├── controllers/
-│   │   ├── base_controller.py   # before_action, render_json, params
-│   │   └── concerns/            # Authenticatable, Paginatable
-│   ├── models/
-│   │   ├── __init__.py          # Single place: import all models here
-│   │   ├── base_model.py        # Callbacks, save/destroy, find/create
-│   │   └── concerns/            # Timestampable, SoftDeletable, Sluggable
-│   ├── schemas/                 # Pydantic (validation/serialization only; CRUD via models)
-│   ├── services/
-│   │   └── base_service.py      # success() / failure()
-│   ├── jobs/
-│   │   └── base_job.py          # perform_later, retries, queues
-│   ├── middleware/              # Auth (JWT → request.state.current_user), Logging
-│   └── helpers/                 # jwt_helper, response_helper
+│   ├── controllers/            # auth, companies, channels, contacts, conversations
+│   │   └── concerns/           # authenticatable, tenant_scoped, paginatable
+│   ├── models/                 # User, Tenant, TenantMembership, Plan, SocialAccount,
+│   │   │                       # InstagramConnection, Contact, Conversation, Message, WebhookEvent
+│   │   └── concerns/           # timestampable, soft_deletable, sluggable, standard_columns
+│   ├── services/               # auth, entitlement, instagram, instagram_sync, instagram_client
+│   ├── jobs/                   # base_job, instagram_sync_job
+│   ├── schemas/                # Pydantic request/response schemas
+│   ├── middleware/             # auth, logging
+│   └── helpers/                # jwt, password, crypto, response
 │
 ├── db/
-│   ├── migrations/
-│   │   ├── env.py
-│   │   └── versions/            # YYYYMMDD_HHMMSS_description.py
-│   └── seeds.py                 # Override with your seed logic
+│   ├── migrations/versions/    # 38 timestamped Alembic migrations
+│   └── seeds.py                # Roles, permissions, plans, demo companies and users
 │
-└── tests/
-    ├── conftest.py              # db, client fixtures
-    └── test_health.py
+├── tests/                      # Pytest suite
+├── scripts/                    # Manual test helpers
+│
+└── web/                        # React + TypeScript + Vite frontend
+    └── src/
+        ├── api/client.ts       # Fetch wrapper with token refresh
+        ├── auth/               # AuthContext, RequireAuth
+        ├── layout/             # CompanyLayout, Sidebar, nav (plan-aware)
+        ├── pages/              # Login, Home, Channels, Contacts, Conversations, …
+        └── components/         # Avatar, …
 ```
 
----
+## Quick start
 
-## Conventions
+**Prerequisites:** Python 3.11+, PostgreSQL 15+, Redis, Node.js 18+.
 
-- **Models** — Define in `app/models/<name>.py`, then **add to `app/models/__init__.py`**. Everywhere else: `from app.models import BaseModel, MyModel`. One place, app-wide.
-- **CRUD** — Only through **SQLAlchemy models** (`Model.create(db, ...)`, `instance.save(db)`, `instance.destroy(db)`). Schemas are for **validation and serialization** only.
-- **Database** — Use **`config/database.yml`** per environment; `APP_ENV` selects the section. Set `DATABASE_URL` in `.env` to override.
-- **Routes** — All in **`config/routes.py`** via `draw_routes(app)`, `namespace()`, and `resources()`.
+```bash
+# 1. Backend setup
+python3 -m venv .venv
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env
+cp config/database.yml.example config/database.yml   # edit credentials
 
----
+# 2. Database
+python manage.py db migrate
+python manage.py db seed             # roles, plans, 2 demo companies, 4 demo users
+
+# 3. Run the API
+python manage.py runserver           # http://localhost:8000
+```
+
+```bash
+# 4. Run the web app (new terminal)
+cd web && npm install && npm run dev # http://localhost:3000  (proxies /api → :8000)
+```
+
+```bash
+# 5. Run the background worker (new terminal, venv active) — needed for DM sync
+redis-cli ping                       # -> PONG
+python manage.py worker
+```
+
+Open **http://localhost:3000** and sign in. API docs are at **http://localhost:8000/docs** when `DEBUG=true`.
+
+### Demo accounts
+
+All seeded users share the password `Password@123` (override with `SEED_PASSWORD`). **Development only.**
+
+| User | Email | Companies (role) |
+|------|-------|------------------|
+| Rahul Verma | `rahul@rahulfitness.demo` | Rahul Fitness (owner) |
+| Priya Singh | `priya@rahulfitness.demo` | Rahul Fitness (agent) |
+| Aman Gupta | `aman@techwithaman.demo` | Tech With Aman (owner) |
+| Rohit Kushwaha | `rohit@agency.demo` | Rahul Fitness (admin), Tech With Aman (agent) |
+
+Seeded plans: **Starter** (₹999/mo — 1 Instagram account, 3 members, inbox/contacts/leads) and **Pro** (₹2999/mo — 5 accounts, 10 members, all features).
+
+> There is no public signup yet; users are created by seeds (invitations are planned).
 
 ## Configuration
 
-### Environment (`.env`)
-
-Copy `.env.example` to `.env`. Key variables:
+Copy `.env.example` to `.env`.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `APP_NAME` | Application name | `MyApp` |
-| `APP_ENV` | `development` / `test` / `staging` / `production` | `development` |
-| `DEBUG` | Enable `/docs`, `/redoc`, verbose logs | `true` |
+| `APP_ENV` | `development` / `staging` / `production` | `development` |
+| `DEBUG` | Enables `/docs`, `/redoc` | `true` |
 | `SECRET_KEY` | App secret | — |
-| `DATABASE_URL` | **Overrides** `database.yml` if set | (from database.yml) |
-| `JWT_SECRET_KEY` | JWT signing key | — |
-| `JWT_ALGORITHM` | JWT algorithm | `HS256` |
+| `DATABASE_URL` | Overrides `config/database.yml` | from YAML |
+| `JWT_SECRET_KEY` / `JWT_ALGORITHM` | JWT signing (also signs the OAuth `state`) | — / `HS256` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Access token TTL | `15` |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | Refresh token TTL | `7` |
 | `REDIS_URL` | Redis connection | `redis://localhost:6379/0` |
-| `CELERY_BROKER_URL` | Celery broker | `redis://localhost:6379/1` |
-| `CELERY_RESULT_BACKEND` | Celery results | `redis://localhost:6379/2` |
+| `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` | Celery broker / results | `redis://…/1` / `…/2` |
+| `FRONTEND_URL` | Where the OAuth callback redirects the browser | `http://localhost:3000` |
+| `INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET` | Instagram app credentials (from the *Instagram* product, not Settings → Basic) | — |
+| `INSTAGRAM_REDIRECT_URI` | Public `https` URL ending in `/api/v1/channels/instagram/callback` | — |
+| `INSTAGRAM_VERIFY_TOKEN` | Webhook verify token (must match Meta app) | — |
+| `ENCRYPTION_KEY` | Encrypts stored access tokens | — |
+| `SUBSCRIPTION_ENFORCED` | When `false`, every active company counts as subscribed | `false` |
+| `CORS_ORIGINS` | Allowed browser origins | `localhost:3000` |
 | `DEFAULT_PAGE_SIZE` / `MAX_PAGE_SIZE` | Pagination | `20` / `100` |
 
-### Database (`config/database.yml`)
+Database settings live in `config/database.yml` (`default` + `development` / `test` / `production` sections), selected by `APP_ENV`.
 
-YAML config. Copy from `config/database.yml.example`:
+## Connecting Instagram
 
-```yaml
-default: &default
-  adapter: postgresql
-  encoding: utf8
-  pool: 10
-  timeout: 5000
+Two ways to connect an account, both from the **Channels** page. Only members with `settings.manage` (owner/admin) can connect or disconnect, and the plan's `instagram_accounts` limit is enforced.
 
-development:
-  <<: *default
-  database: insta_crm_development
-  username: postgres
-  password: postgres
-  host: localhost
-  port: 5432
+### Option A — OAuth ("Connect to Instagram")
 
-test:
-  <<: *default
-  database: insta_crm_test
-  # ...
+1. User clicks **Connect to Instagram**; the API creates a signed, 10‑minute `state` (user + company) and redirects to Instagram.
+2. After login, Instagram redirects to `/api/v1/channels/instagram/callback?code&state`.
+3. The API verifies `state`, exchanges the code for a long-lived token (60 days), stores the account and the **encrypted** token, then redirects to `FRONTEND_URL`.
 
-production:
-  <<: *default
-  database: insta_crm_production
-  # ...
-```
+### Option B — Manual connect
 
-- **Selected by** `APP_ENV`. `config/database_yml.py` merges `default` + env section and builds `DATABASE_URL`.
-- **Override** any time by setting `DATABASE_URL` in `.env`.
+1. `verify` — submit the Instagram app/user ID and an access token; the API checks the profile.
+2. `webhook-preview` — issues a **per-account webhook URL and verify token**.
+3. `connect` — stores the connection with the token encrypted.
 
----
+### One-time platform setup (Meta)
 
-## Database
+1. In the Meta app (developers.facebook.com) add the **Instagram** product → *API setup with Instagram login*, and copy the **Instagram app ID/secret** into `.env`.
+2. Add the OAuth redirect URI `<public API URL>/api/v1/channels/instagram/callback` under *Business login settings* and set the same value in `INSTAGRAM_REDIRECT_URI`.
+3. Generate an encryption key and set `ENCRYPTION_KEY` (never change it without re-encrypting stored tokens):
+   ```bash
+   python -c "import secrets; print(secrets.token_urlsafe(48))"
+   ```
+4. Configure the webhook callback `<public API URL>/api/v1/channels/instagram/webhook` with the same `INSTAGRAM_VERIFY_TOKEN`, and subscribe to `messages`.
+5. While the Meta app is in **Development mode**, add each account under *App roles → Instagram testers* and accept the invite. Accounts must be **Professional** (Business/Creator).
 
-### Migrations (Alembic)
+**Local development:** Meta must reach your machine, so expose the API with a tunnel (`ngrok http 8000`) and use the `https` URL in `INSTAGRAM_REDIRECT_URI` and in the Meta app. Free ngrok URLs change on restart — update both places.
 
-- **Location:** `db/migrations/versions/` with names like `YYYYMMDD_HHMMSS_description.py`.
-- **Each file:** `revision`, `down_revision`, `upgrade()`, `downgrade()`.
+### Webhook security
 
-| Command | Description |
-|--------|-------------|
-| `python manage.py db migrate` | Run pending migrations |
-| `python manage.py db rollback` | Rollback one step |
-| `python manage.py db rollback --step=3` | Rollback 3 steps |
-| `python manage.py db rollback --to=<revision>` | Rollback to revision |
-| `python manage.py db status` | Current revision |
-| `python manage.py db history` | Migration history |
-| `python manage.py db seed` | Run `db/seeds.py` |
-| `python manage.py db reset` | Downgrade all → migrate → seed |
+- `GET` handshake validates the verify token.
+- `POST` deliveries are verified with `X-Hub-Signature-256` (HMAC‑SHA256 using `INSTAGRAM_APP_SECRET`).
+- Each delivery is stored in `webhook_events` keyed by a hash of the body, so Meta retries are **idempotent**.
 
-**Generate a new migration:**
+## API reference
 
-```bash
-python manage.py generate migration create_articles_table
-# Creates db/migrations/versions/YYYYMMDD_HHMMSS_create_articles_table.py
-```
+Base path: `/api/v1`. Authenticated endpoints expect `Authorization: Bearer <access_token>`. Company-scoped endpoints verify the caller is a member of `{company_id}` (UUID).
 
-### Seeds
+### Auth & companies
 
-`db/seeds.py` is a no-op by default. Override `run_seeds()` with your own logic and run:
+| Method | Path | Auth | Description |
+|--------|------|:----:|-------------|
+| `POST` | `/auth/login` | – | `{email, password}` → access + refresh JWT, user, companies |
+| `POST` | `/auth/refresh` | – | `{refresh_token}` → new token pair |
+| `GET` | `/auth/me` | ✅ | Current user and companies |
+| `GET` | `/companies` | ✅ | Companies the user belongs to |
+| `GET` | `/companies/{id}` | ✅ | Company, my roles, plan, enabled features (404 if not a member) |
 
-```bash
-python manage.py db seed
-```
+### Channels (Instagram)
 
-### Multi-tenant CRM schema (PostgreSQL)
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/companies/{id}/channels` | Channel summary, plan limit, connected accounts, `can_manage` |
+| `POST` | `/companies/{id}/channels/instagram/connect` | Start OAuth connect / save a manual connection |
+| `POST` | `/companies/{id}/channels/instagram/verify` | Verify an account + token |
+| `POST` | `/companies/{id}/channels/instagram/webhook-preview` | Issue per-account webhook URL + verify token |
+| `DELETE` | `/companies/{id}/channels/instagram/{account_id}` | Disconnect an account |
+| `GET` | `/channels/instagram/callback` | OAuth redirect target (signed `state`, no Bearer) |
+| `GET`/`POST` | `/channels/instagram/webhook[/{connection_id}]` | Meta webhook verify / delivery (no Bearer) |
 
-`db/migrations/versions/` holds one migration per table (36 tables, plus one for extensions and the `set_updated_at()` trigger). Run `python manage.py db migrate`. Requires PostgreSQL 15+ (uses `ON DELETE SET NULL (column)` and `gen_random_uuid()`).
+### Contacts & conversations
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/companies/{id}/contacts` | Paginated contacts |
+| `POST` | `/companies/{id}/contacts/instagram/{connection_id}/sync` | Enable sync and enqueue the import job |
+| `GET` | `/companies/{id}/conversations` | Paginated conversations |
+| `GET` | `/companies/{id}/conversations/{conversation_id}` | Conversation with messages |
+
+All errors use a uniform JSON envelope from `response_helper`.
+
+## Data model
+
+PostgreSQL schema with **36 tables** across 38 migrations (extensions + `set_updated_at()` trigger included). Requires PostgreSQL 15+.
 
 | Module | Tables |
 |--------|--------|
 | Identity & tenancy | `users`, `user_profiles`, `tenants`, `tenant_memberships`, `tenant_member_profiles`, `roles`, `permissions`, `role_permissions`, `membership_roles`, `invitations` |
 | Plans & billing | `plans`, `features`, `plan_features`, `subscriptions`, `subscription_items`, `billing_events`, `tenant_feature_overrides`, `tenant_settings` |
-| Instagram | `social_accounts`, `social_account_tokens`, `social_account_assignments`, `webhook_events` |
+| Instagram | `social_accounts`, `social_account_tokens`, `social_account_assignments`, `webhook_events`, `instagram_connections` |
 | CRM | `contacts`, `conversations`, `messages`, `message_attachments`, `conversation_assignments`, `leads`, `lead_assignments`, `tags`, `contact_tags` |
 | Automation, usage, audit | `automation_rules`, `automation_runs`, `ai_usage_records`, `usage_counters`, `audit_logs` |
 
-Design rules:
+**Design rules**
 
-- **Users are global, tenants are companies.** The link is `tenant_memberships`; roles attach to the membership (`membership_roles`), never to the user. `user_profiles` has no `tenant_id`.
-- **Instagram DM senders are `contacts`, not users.** Contacts are scoped to a `social_account`, unique on `(social_account_id, platform_user_id)`.
-- **Tenant isolation is enforced by the database.** Child tables use composite foreign keys such as `(tenant_id, contact_id) -> contacts(tenant_id, id)`, so a row cannot reference another tenant's record.
-- **Every table** has `additional_attributes JSONB` (free-form extra data), `created_at`, and `updated_at` (set by trigger).
-- **Postgres features used:** partial unique indexes (one live subscription per tenant, one open assignment per conversation), GIN `jsonb_path_ops` on JSONB, `pg_trgm` GIN for username/name search, full-text GIN on `messages.content`, BRIN on `audit_logs.created_at`, CHECK constraints for statuses, and idempotency keys for webhooks and messages.
-- Plans, features, system roles and permissions are not seeded; add them in `db/seeds.py`.
+- **Users are global, tenants are companies.** Roles attach to the *membership*, never to the user.
+- **Instagram senders are `contacts`, not users**, unique per `(social_account_id, platform_user_id)`.
+- **Database-enforced isolation:** composite FKs such as `(tenant_id, contact_id) → contacts(tenant_id, id)` make cross-tenant references impossible.
+- **Every table** has `additional_attributes JSONB`, `created_at`, and trigger-maintained `updated_at`.
+- **Postgres features:** partial unique indexes (one live subscription per tenant, one open assignment per conversation), GIN `jsonb_path_ops`, `pg_trgm` search, full-text index on `messages.content`, BRIN on `audit_logs.created_at`, CHECK constraints, and idempotency keys.
 
-### Authentication API and web app
+**Roles & permissions** (seeded): `owner` (all) · `admin` (all except billing) · `manager` · `agent` · `viewer`, over permissions `contacts.read/write`, `conversations.read/reply`, `leads.manage`, `team.manage`, `billing.manage`, `settings.manage`.
 
-Seed demo data, then run the API and the React app (`web/`, Vite + React + TypeScript):
+## Background jobs
+
+Jobs run in a **separate Celery worker**, with Redis as broker. Enabling sync only flips a flag and enqueues `InstagramSyncJob`; the worker then fetches the DM threads from Instagram and upserts contacts, conversations and messages, updating `sync_status` (`queued → running → synced | failed`).
 
 ```bash
-python manage.py db migrate
-python manage.py db seed          # roles, plans + features, 2 companies, 4 login users (see db/seeds.py)
-python manage.py runserver        # API on :8000
-
-cd web && npm install && npm run dev   # UI on http://localhost:3000 (proxies /api to :8000)
+python manage.py worker                    # default queue
+python manage.py worker --queue=mailers    # another queue
+python manage.py scheduler                 # Celery Beat (periodic tasks)
 ```
 
-| Method | Path | Auth | Purpose |
-|--------|------|------|---------|
-| POST | `/api/v1/auth/login` | none | `{email, password}` → access + refresh JWT, user, companies |
-| POST | `/api/v1/auth/refresh` | none | `{refresh_token}` → new token pair |
-| GET | `/api/v1/auth/me` | Bearer | current user and companies |
-| GET | `/api/v1/companies` | Bearer | companies the user belongs to |
-| GET | `/api/v1/companies/{id}` | Bearer | company, my roles, plan and enabled features (404 if not a member) |
+```python
+from app.jobs.instagram_sync_job import InstagramSyncJob
+InstagramSyncJob.perform_later(connection_id="...")   # queued in Redis
+InstagramSyncJob.perform_now(connection_id="...")     # inline, no worker
+```
 
-There is no signup; users are created by seeds (later: invitations). After login the UI lands on `/accounts/companies/<company-id>`, so the tenant id is always in the URL (ids are UUIDs). Subscription enforcement is off by default (`SUBSCRIPTION_ENFORCED=false`): every active company has access, and the plan's features are still returned and drive the sidebar.
+Modules in `app/jobs/` are auto-registered; restart the worker after changes. On macOS `manage.py worker` uses `--pool=solo` (prefork crashes there).
 
-Code layout: controllers `app/controllers/auth_controller.py` and `companies_controller.py`, services `auth_service.py` and `entitlement_service.py`, routes in `config/routes.py` (`route()` for single endpoints, `resources(..., id_type="uuid")` for UUID resources).
+## Web app
 
-### Connecting Instagram (Channels)
+React 18 + TypeScript + Vite, with the dev server proxying `/api` to `:8000`.
 
-Open **Channels** in the sidebar, click **Connect to Instagram**, log in on Instagram, and the account is saved for that company. Only owners/admins (`settings.manage`) can connect or disconnect; the plan's `instagram_accounts` limit is enforced. Tokens are stored encrypted (`ENCRYPTION_KEY`) and never returned by the API.
+- **Auth:** `AuthContext` + `RequireAuth`, automatic token refresh in `api/client.ts`.
+- **Routing:** after login you land on `/accounts/companies/<company-id>` — the tenant is always in the URL.
+- **Plan-aware sidebar:** items (Inbox, Leads, Campaigns, Automation, Analytics…) appear only when the plan enables the feature.
+- **Pages:** Login, Home, **Channels** (connect/disconnect, webhook setup, sync), **Contacts**, **Conversations**; other sections render a placeholder.
 
-**One-time platform setup** (you, once, not per customer):
-
-1. Meta app (developers.facebook.com) -> add the **Instagram** product -> *API setup with Instagram login*. Copy the **Instagram app ID** and **Instagram app secret** (not the ones in Settings -> Basic) into `.env` as `INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET`.
-2. In *Business login settings* add the OAuth redirect URI `<public API URL>/api/v1/channels/instagram/callback` and put the same value in `INSTAGRAM_REDIRECT_URI`.
-3. Set `ENCRYPTION_KEY` to a long random string: `python -c "import secrets; print(secrets.token_urlsafe(48))"`. Do not change it later without re-encrypting stored tokens.
-4. While the Meta app is in Development mode, add each Instagram account you want to connect under *App roles -> Roles -> Instagram testers* and accept the invite in Instagram (Settings -> Apps and websites). The account must be a Professional (Business/Creator) account.
-
-**Local development:** Instagram redirects the browser to the public API URL, so expose the API with a tunnel (`ngrok http 8000`) and use the https URL in `INSTAGRAM_REDIRECT_URI` and in the Meta app. Free ngrok URLs change on restart (update both places), and ngrok's free plan shows a one-time "Visit Site" page. The callback then redirects the browser to `FRONTEND_URL` (`http://localhost:3000`).
-
-Endpoints: `GET /api/v1/companies/{id}/channels`, `POST /api/v1/companies/{id}/channels/instagram/connect`, `DELETE /api/v1/companies/{id}/channels/instagram/{account_id}`, `GET /api/v1/channels/instagram/callback` (called by Instagram; the signed `state` identifies the user and company).
-
----
-
-## Running the app
-
-| Command | Description |
-|--------|-------------|
-| `python manage.py runserver` | Start API (Uvicorn, reload) |
-| `python manage.py runserver --port=8080` | Custom port |
-| `python manage.py worker` | Celery worker (default queue) |
-| `python manage.py worker --queue=mailers` | Worker for specific queue |
-| `python manage.py scheduler` | Celery Beat |
-| `python manage.py shell` | REPL with `db` and all `app.models` |
-| `python manage.py routes` | List registered routes |
-
-**Endpoints (framework default):**
-
-- **GET `/health`** — Health check (no auth).
-- **GET `/docs`**, **GET `/redoc`** — API docs when `DEBUG=true`.
-
-Add your own routes in `config/routes.py` inside `draw_routes(app)`.
-
----
+```bash
+cd web
+npm run dev       # development
+npm run build     # type-check + production build
+```
 
 ## CLI reference
 
-### Server
-
-| Command | Description |
-|---------|-------------|
-| `python manage.py runserver` | Start Uvicorn with reload |
-| `python manage.py runserver --port=PORT` | Custom port |
-| `python manage.py runserver --host=HOST` | Custom host |
-
-### Database
-
-| Command | Description |
-|---------|-------------|
-| `db migrate` | `alembic upgrade head` |
-| `db rollback` | Rollback 1 migration |
-| `db rollback --step=N` | Rollback N migrations |
-| `db rollback --to=REV` | Rollback to revision |
-| `db status` | Current revision |
-| `db history` | Full history |
-| `db seed` | Run `db/seeds.py` |
-| `db reset` | Downgrade all → migrate → seed |
-
-### Generators
-
-| Command | Description |
-|---------|-------------|
-| `generate migration <name>` | New migration in `db/migrations/versions/` |
-| `generate controller <name>` | New controller in `app/controllers/` |
-| `generate model <name>` | New model in `app/models/` |
-| `generate job <name>` | New job in `app/jobs/` |
-| `generate service <name>` | New service in `app/services/` |
-
-### Other
-
-| Command | Description |
-|---------|-------------|
-| `routes` | Print all routes (method, path) |
-| `worker` | Start Celery worker |
-| `worker --queue=NAME` | Worker for one queue |
-| `scheduler` | Start Celery Beat |
-| `shell` | REPL with `db` and every symbol from `app.models` |
-
----
-
-## Architecture
-
-### Models (SQLAlchemy only for CRUD)
-
-- **Base:** `BaseModel` (from `config.database.Base`).
-- **Callbacks:** `@before_save`, `@after_save`, `@after_create`, `@before_destroy`, `@after_destroy`.
-- **Instance:** `save(db)`, `destroy(db)`, `update(db, **kwargs)`, `to_dict()`, `reload(db)`.
-- **Class:** `find(db, id)`, `find_by(db, **kwargs)`, `where(db, **kwargs)`, `all(db)`, `create(db, **kwargs)`.
-- **Concerns:** `Timestampable`, `SoftDeletable`, `Sluggable` (mixins for columns and helpers).
-
-**Always import from the single entrypoint:**
-
-```python
-from app.models import BaseModel, Timestampable, MyModel  # add MyModel in app/models/__init__.py
+```bash
+python manage.py <command>
 ```
 
-### Controllers
-
-- **Base:** `BaseController(request, db)` with `params`, `render_json()`, `render_error()`.
-- **Filters:** `@before_action(only=[...], except_list=[...])`, `@after_action`, `@skip_before_action`.
-- **Concerns:** `Authenticatable` (`authenticate_user`, `require_admin`, `require_owner`), `Paginatable` (`paginate`).
-- **Auth:** `request.state.current_user` is set by middleware (JWT payload dict or your own logic). No model import in middleware.
-
-### Services
-
-- **Base:** `BaseService(db)` with `success(data)` and `failure(error)`.
-- Use for business logic; controllers call services and return `render_json(service.result)`.
-
-### Jobs (Celery)
-
-- **Base:** `BaseJob` with `perform(**kwargs)`, `perform_later(**kwargs)`, `perform_now(**kwargs)`, `on_failure(exc, kwargs)`.
-- Set `queue`, `retry_limit`, `retry_delay` on the subclass. Jobs in `app/jobs/` are auto-registered; optional periodic schedules go in `CELERY_BEAT_SCHEDULE` in `config/settings.py`. See [Background jobs: Celery + Redis](#background-jobs-celery--redis) for running the worker.
-
-### Routing
-
-- **File:** `config/routes.py`; **function:** `draw_routes(app)`.
-- **Helpers:** `namespace(app, "/api/v1")` yields a router; `resources(router, "/articles", ArticlesController)` registers index/show/create/update/destroy.
-- Path params are on `request.state.path_params`; filters run before the action.
-
----
+| Group | Commands |
+|-------|----------|
+| Server | `runserver [--host] [--port]` |
+| Database | `db migrate` · `db rollback [--step=N \| --to=REV]` · `db status` · `db history` · `db seed` · `db reset` |
+| Generators | `generate migration\|controller\|model\|job\|service <name>` |
+| Workers | `worker [--queue=NAME]` · `scheduler` |
+| Utilities | `routes` (list all routes) · `shell` (REPL with `db` and all models) |
 
 ## Testing
 
-- **DB:** In-memory SQLite by default (`DATABASE_URL` / `TEST_DATABASE_URL` in test run).
-- **Fixtures:** `db` (session, create/drop tables per test), `client` (TestClient with overridden `get_db`).
+Tests run against in-memory SQLite with a `db` session fixture and a `client` (TestClient with overridden `get_db`).
 
 ```bash
 pytest tests/ -v
-```
 
-**With coverage:**
-
-```bash
+# with coverage
 pip install pytest-cov
 pytest tests/ -v --cov=app --cov-report=term-missing
 ```
 
-**Included:** `tests/test_health.py` — GET `/health` returns 200. Add your own tests and fixtures (e.g. authenticated client, model factories) in `conftest.py` and new `test_*.py` files.
+Covered: health, auth API, channels, Instagram webhooks, sync, controller filters, route wrapper and model callbacks.
 
----
-
-## Adding your first resources
-
-### 1. Model
-
-Create `app/models/article.py`:
-
-```python
-from sqlalchemy.orm import Mapped, mapped_column
-from app.models import BaseModel
-
-class Article(BaseModel):
-    __tablename__ = "articles"
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    title: Mapped[str] = mapped_column(nullable=False)
-    body: Mapped[str] = mapped_column(nullable=False)
-```
-
-Add to **`app/models/__init__.py`**:
-
-```python
-from app.models.article import Article
-__all__ = [..., "Article"]
-```
-
-### 2. Migration
+## Extending the codebase
 
 ```bash
+python manage.py generate model article
 python manage.py generate migration create_articles_table
-# Edit db/migrations/versions/YYYYMMDD_HHMMSS_create_articles_table.py: add op.create_table(...)
-python manage.py db migrate
+python manage.py generate controller articles
+python manage.py generate service article
 ```
 
-### 3. Controller and routes
+1. **Model** → `app/models/<name>.py`, then export it from `app/models/__init__.py` (single import point: `from app.models import …`).
+2. **Migration** → edit the generated file, then `python manage.py db migrate`.
+3. **Controller + route** → add the route in `config/routes.py` with `route()` or `resources()`.
+4. **Service / Job** → keep business logic in `app/services/`, slow work in `app/jobs/`.
 
-Create `app/controllers/articles_controller.py` (inherit `BaseController`, implement `index`, `show`, `create`, `update`, `destroy`). In **`config/routes.py`** inside `draw_routes(app)`:
-
-```python
-from app.controllers.articles_controller import ArticlesController
-with namespace(app, "/api/v1") as router:
-    resources(router, "/articles", ArticlesController)
-```
-
-### 4. Optional: service and schemas
-
-- **Service:** `app/services/article_service.py` inheriting `BaseService`, used by the controller.
-- **Schemas:** Pydantic models in `app/schemas/` for request/response validation; keep **all persistence in models** (`Article.create(db, ...)`, `article.save(db)`).
-
----
+Conventions: CRUD goes through models, schemas are for validation/serialization, and **all routes live in `config/routes.py`**.
 
 ## Deployment
 
-1. **Environment**
-   - `APP_ENV=production`, `DEBUG=false`.
-   - Strong `SECRET_KEY` and `JWT_SECRET_KEY`.
-   - Production `config/database.yml` (or `DATABASE_URL`), `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `REDIS_URL`.
+1. Set `APP_ENV=production`, `DEBUG=false`, strong `SECRET_KEY`, `JWT_SECRET_KEY` and `ENCRYPTION_KEY`, and production DB/Redis/Celery URLs.
+2. Run the API: `gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000`
+3. Run one or more Celery workers (and Beat if you add periodic tasks) under systemd/supervisor.
+4. `python manage.py db migrate` (seed only roles/plans; do not ship demo users).
+5. Build the frontend (`cd web && npm run build`) and serve `web/dist` behind HTTPS; restrict `CORS_ORIGINS`.
+6. Use a stable public HTTPS URL for the Instagram redirect URI and webhook.
 
-2. **Processes**
-   - **API:** e.g. `gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000`
-   - **Workers:** one or more Celery workers; one Beat process if using scheduled tasks.
+## Roadmap
 
-3. **Database**
-   - `python manage.py db migrate`
-   - Optionally run your seeds once: `python manage.py db seed`
+- [ ] Team invitations (replacing seed-only users)
+- [ ] Inbox: reply to DMs from the CRM
+- [ ] Leads pipeline, tags and assignments UI
+- [ ] Campaigns and automation rules
+- [ ] AI-assisted replies and usage metering
+- [ ] Billing integration and subscription enforcement
+- [ ] Analytics dashboard
 
-4. **Security**
-   - Restrict CORS in `main.py` (e.g. from settings). Use HTTPS in production.
-
----
+The database schema already includes tables for most of these modules.
 
 ## License
 
-Use as a base for your own projects. Adjust naming and licensing as needed.
+Released under the [MIT License](LICENSE).
