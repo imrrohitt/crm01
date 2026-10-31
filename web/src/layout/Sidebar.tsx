@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
+import { Avatar } from '../components/Avatar'
+import { Icon } from '../components/Icon'
+import { Logo } from '../components/Logo'
 import { useCompany } from './CompanyLayout'
-import { NAV } from './nav'
+import { GROUP_LABEL, NAV, type NavItem } from './nav'
 
 function useCollapsed(): [boolean, () => void] {
   const [collapsed, setCollapsed] = useState(() => {
@@ -32,7 +35,8 @@ export function Sidebar() {
   const base = `/accounts/companies/${company.id}`
   const features = company.subscription.features
   const items = NAV.filter((n) => !n.feature || features[n.feature])
-  const initials = (user?.full_name ?? user?.email ?? '?').slice(0, 1).toUpperCase()
+  const groups = (['main', 'grow', 'workspace'] as NavItem['group'][]).map((g) => ({ g, items: items.filter((n) => n.group === g) })).filter((x) => x.items.length)
+  const displayName = user?.full_name ?? user?.email ?? '?'
 
   function switchCompany(id: string) {
     const section = location.pathname.replace(base, '')
@@ -43,55 +47,58 @@ export function Sidebar() {
     <aside className={`sidebar ${collapsed ? 'is-collapsed' : ''}`} aria-label="Primary">
       <div className="sidebar-head">
         <div className="brand">
-          <span className="brand-mark">IC</span>
-          {!collapsed && <span>Insta CRM</span>}
+          <Logo size={34} />
+          {!collapsed && <span className="brand-name">insta<b>.crm</b></span>}
         </div>
         <button className="icon-btn" onClick={toggle} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!collapsed}>
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d={collapsed ? 'M9 6l6 6-6 6' : 'M15 6l-6 6 6 6'} />
-          </svg>
+          <Icon name={collapsed ? 'chevronRight' : 'chevronLeft'} size={16} />
         </button>
       </div>
 
       {!collapsed && companies.length > 1 && (
-        <select className="company-switch" value={company.id} onChange={(e) => switchCompany(e.target.value)} aria-label="Switch company">
-          {companies.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
+        <div className="company-switch-wrap">
+          <select className="company-switch" value={company.id} onChange={(e) => switchCompany(e.target.value)} aria-label="Switch company">
+            {companies.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+          <Icon name="chevronDown" size={14} />
+        </div>
       )}
 
       <nav className="nav">
-        {items.map((n) => (
-          <NavLink
-            key={n.path}
-            to={n.path ? `${base}/${n.path}` : base}
-            end={n.path === ''}
-            className={({ isActive }) => `nav-item ${isActive ? 'is-active' : ''}`}
-            title={collapsed ? n.label : undefined}
-          >
-            {n.icon}
-            {!collapsed && <span>{n.label}</span>}
-          </NavLink>
+        {groups.map(({ g, items: list }) => (
+          <div className="nav-group" key={g}>
+            {!collapsed && <span className="nav-label">{GROUP_LABEL[g]}</span>}
+            {list.map((n) => (
+              <NavLink
+                key={n.path}
+                to={n.path ? `${base}/${n.path}` : base}
+                end={n.path === ''}
+                className={({ isActive }) => `nav-item ${isActive ? 'is-active' : ''}`}
+                title={collapsed ? n.label : undefined}
+              >
+                <Icon name={n.icon} size={19} />
+                {!collapsed && <span>{n.label}</span>}
+              </NavLink>
+            ))}
+          </div>
         ))}
       </nav>
 
       <div className="sidebar-foot">
-        <div className="user-chip" title={collapsed ? (user?.full_name ?? user?.email) : undefined}>
-          <span className="avatar">{initials}</span>
+        <div className="user-chip" title={collapsed ? displayName : undefined}>
+          <Avatar name={displayName} src={user?.avatar_url} />
           {!collapsed && (
             <span className="user-meta">
-              <strong>{user?.full_name ?? user?.email}</strong>
+              <strong>{displayName}</strong>
               <small>{company.roles.join(', ')}</small>
             </span>
           )}
+          <button className="icon-btn icon-btn-ghost" onClick={() => { logout(); navigate('/login', { replace: true }) }} title="Sign out" aria-label="Sign out">
+            <Icon name="logout" size={16} />
+          </button>
         </div>
-        <button className="nav-item signout" onClick={() => { logout(); navigate('/login', { replace: true }) }} title="Sign out">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
-          </svg>
-          {!collapsed && <span>Sign out</span>}
-        </button>
       </div>
     </aside>
   )

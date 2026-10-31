@@ -6,7 +6,7 @@ import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { ChannelsPage } from './pages/ChannelsPage'
 import { ContactsPage } from './pages/ContactsPage'
-import { ConversationsPage } from './pages/ConversationsPage'
+import { ConversationsPage, InboxPage } from './pages/ConversationsPage'
 import { SectionPage } from './pages/SectionPage'
 
 export default function App() {
@@ -19,6 +19,7 @@ export default function App() {
           <Route index element={<HomePage />} />
           <Route path="channels" element={<ChannelsPage />} />
           <Route path="contacts" element={<ContactsPage />} />
+          <Route path="inbox" element={<InboxPage />} />
           <Route path="conversations" element={<ConversationsPage />} />
           <Route path=":section" element={<SectionPage />} />
         </Route>
