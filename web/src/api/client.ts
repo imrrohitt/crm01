@@ -1,4 +1,7 @@
-import type { ChannelAccount, ChannelsResponse, Company, CompanyDetail, InstagramConnection, InstagramProfile, Session, User, WebhookPreview } from '../types'
+import type {
+  ChannelAccount, ChannelsResponse, Company, CompanyDetail, ConversationDetail, ConversationSummary,
+  CrmContact, InstagramConnection, InstagramProfile, Session, SyncAccount, User, WebhookPreview,
+} from '../types'
 
 const ACCESS_KEY = 'icrm.access'
 const REFRESH_KEY = 'icrm.refresh'
@@ -131,4 +134,10 @@ export const api = {
     }),
   disconnectInstagram: (companyId: string, accountId: string) =>
     authed<ChannelAccount>(`/companies/${companyId}/channels/instagram/${accountId}`, { method: 'DELETE' }),
+  contacts: (companyId: string) => authed<{ accounts: SyncAccount[]; contacts: CrmContact[] }>(`/companies/${companyId}/contacts`),
+  enableContactSync: (companyId: string, connectionId: string) =>
+    authed<SyncAccount>(`/companies/${companyId}/contacts/instagram/${connectionId}/sync`, { method: 'POST' }),
+  conversations: (companyId: string) => authed<ConversationSummary[]>(`/companies/${companyId}/conversations`),
+  conversation: (companyId: string, conversationId: string) =>
+    authed<ConversationDetail>(`/companies/${companyId}/conversations/${conversationId}`),
 }

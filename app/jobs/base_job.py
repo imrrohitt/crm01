@@ -4,8 +4,6 @@ Base job with perform_later, perform_now, retry, and on_failure.
 
 from typing import Any
 
-from config.celery import celery_app
-
 
 class BaseJob:
     """Base for all async jobs. Override perform() and optionally queue, retry_limit, retry_delay, on_failure."""
@@ -17,6 +15,8 @@ class BaseJob:
     @classmethod
     def perform_later(cls, **kwargs: Any) -> Any:
         """Enqueue job to run asynchronously."""
+        from config.celery import celery_app
+
         task_name = f"{cls.__module__}.{cls.__name__}.run"
         return celery_app.send_task(task_name, kwargs=kwargs, queue=cls.queue)
 

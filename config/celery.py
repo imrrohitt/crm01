@@ -57,3 +57,22 @@ if CELERY_BEAT_SCHEDULE:
             "options": entry.get("options", {}),
         }
 celery_app.conf.beat_schedule = beat_schedule
+
+
+def _register_job_tasks() -> None:
+    """Bind job classes to Celery after the app exists. Retries only network failures."""
+    from app.jobs.instagram_sync_job import InstagramSyncJob
+    from app.services.instagram_client import InstagramApiError
+
+    @celery_app.task(bind=True, max_retries=3, queue="default", name="app.jobs.instagram_sync_job.InstagramSyncJob.run")
+    def _instagram_sync(self, **kwargs):
+        try:
+            return InstagramSyncJob().perform(**kwargs)
+        except InstagramApiError as exc:
+            text = (exc.message or "").lower()
+            if "access token" in text or "session has expired" in text:
+                raise
+            raise self.retry(exc=exc, countdown=InstagramSyncJob.retry_delay) from exc
+
+
+_register_job_tasks()

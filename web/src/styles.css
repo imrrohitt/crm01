@@ -124,6 +124,16 @@ dd { margin: 0; min-width: 0; }
 .account-meta { display: grid; flex: 1; min-width: 0; line-height: 1.25; }
 .account-meta strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .avatar-img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex: none; }
+.avatar-lg { width: 44px; height: 44px; font-size: 1rem; }
+.avatar-xl { width: 96px; height: 96px; font-size: 2rem; }
+.contact-open { display: flex; align-items: center; gap: .7rem; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.contact-hero { display: flex; align-items: center; gap: .9rem; }
+.contact-hero h2 { margin: 0; }
+.contact-modal { max-width: 520px; }
+.detail-grid { display: grid; gap: .65rem; margin: .2rem 0 0; }
+.detail-grid div { display: grid; gap: .1rem; }
+.detail-grid dt { color: var(--muted); font-size: .8rem; }
+.detail-grid dd { margin: 0; word-break: break-word; }
 .btn-small { padding: .3rem .7rem; font-size: .85rem; }
 .text-danger { color: var(--danger); }
 .connection-box { display: grid; gap: .35rem; padding: .7rem; border: 1px solid var(--border); border-radius: 10px; }
@@ -139,3 +149,15 @@ dd { margin: 0; min-width: 0; }
 .modal textarea:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: .6rem; }
 .profile-found { display: flex; align-items: center; gap: .7rem; padding: .6rem; border: 1px solid var(--border); border-radius: 10px; }
+.contact-list { margin-top: 16px; }
+.conversation-layout { display: grid; grid-template-columns: minmax(220px, 320px) 1fr; gap: 16px; align-items: start; }
+.conversation-pick { display: flex; align-items: center; gap: .7rem; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.conversation-pick.is-active strong { color: var(--primary); }
+.thread-head { display: flex; align-items: center; gap: .7rem; margin-bottom: .9rem; }
+.thread-head h2 { margin: 0; }
+.thread-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
+.thread-list li { max-width: 80%; padding: .45rem .7rem; border-radius: 10px; }
+.thread-list li small { display: block; margin-top: .15rem; font-size: .75rem; color: var(--muted); }
+.thread-list .is-in { background: var(--bg); }
+.thread-list .is-out { margin-left: auto; background: var(--primary-soft); }
+@media (max-width: 720px) { .conversation-layout { grid-template-columns: 1fr; } }

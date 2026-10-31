@@ -5,6 +5,8 @@ import { CompanyRedirect } from './pages/CompanyRedirect'
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { ChannelsPage } from './pages/ChannelsPage'
+import { ContactsPage } from './pages/ContactsPage'
+import { ConversationsPage } from './pages/ConversationsPage'
 import { SectionPage } from './pages/SectionPage'
 
 export default function App() {
@@ -16,6 +18,8 @@ export default function App() {
         <Route path="/accounts/companies/:companyId" element={<CompanyLayout />}>
           <Route index element={<HomePage />} />
           <Route path="channels" element={<ChannelsPage />} />
+          <Route path="contacts" element={<ContactsPage />} />
+          <Route path="conversations" element={<ConversationsPage />} />
           <Route path=":section" element={<SectionPage />} />
         </Route>
       </Route>

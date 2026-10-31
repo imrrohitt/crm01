@@ -17,6 +17,7 @@ export const NAV: NavItem[] = [
   { path: '', label: 'Home', icon: svg('M3 11l9-8 9 8M5 10v10h14V10') },
   { path: 'inbox', label: 'Inbox', feature: 'inbox', icon: svg('M4 4h16v12H8l-4 4V4z') },
   { path: 'contacts', label: 'Contacts', feature: 'contacts', icon: svg('M16 11a4 4 0 10-8 0 4 4 0 008 0zM4 21c0-4 4-6 8-6s8 2 8 6') },
+  { path: 'conversations', label: 'Conversations', feature: 'inbox', icon: svg('M4 5h16v10H8l-4 4V5z') },
   { path: 'leads', label: 'Leads', feature: 'leads', icon: svg('M3 4h18l-7 9v6l-4 2v-8L3 4z') },
   { path: 'campaigns', label: 'Campaigns', feature: 'campaigns', icon: svg('M3 11v2l14 6V5L3 11zM17 8a4 4 0 010 8') },
   { path: 'automation', label: 'Automation', feature: 'automation', icon: svg('M13 2L4 14h7l-1 8 9-12h-7l1-8z') },

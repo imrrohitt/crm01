@@ -127,6 +127,8 @@ def draw_routes(app: FastAPI) -> None:
     from app.controllers.auth_controller import AuthController
     from app.controllers.channels_controller import ChannelsController
     from app.controllers.companies_controller import CompaniesController
+    from app.controllers.contacts_controller import ContactsController
+    from app.controllers.conversations_controller import ConversationsController
 
     with namespace(app, "/api/v1") as router:
         route(router, "POST", "/auth/login", AuthController, "login")
@@ -134,6 +136,10 @@ def draw_routes(app: FastAPI) -> None:
         route(router, "GET", "/auth/me", AuthController, "me")
         resources(router, "/companies", CompaniesController, only=["index", "show"], id_type="uuid")
         route(router, "GET", "/companies/{company_id:uuid}/channels", ChannelsController, "index")
+        route(router, "GET", "/companies/{company_id:uuid}/contacts", ContactsController, "index")
+        route(router, "POST", "/companies/{company_id:uuid}/contacts/instagram/{connection_id:uuid}/sync", ContactsController, "enable_sync")
+        route(router, "GET", "/companies/{company_id:uuid}/conversations", ConversationsController, "index")
+        route(router, "GET", "/companies/{company_id:uuid}/conversations/{conversation_id:uuid}", ConversationsController, "show")
         route(router, "POST", "/companies/{company_id:uuid}/channels/instagram/verify", ChannelsController, "verify_instagram")
         route(router, "POST", "/companies/{company_id:uuid}/channels/instagram/webhook-preview", ChannelsController, "preview_instagram_webhook")
         route(router, "POST", "/companies/{company_id:uuid}/channels/instagram/connect", ChannelsController, "connect_instagram")

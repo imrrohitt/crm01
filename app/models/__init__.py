@@ -19,6 +19,9 @@ from app.models.tenant_membership import (
 )
 from app.models.social_account import SocialAccount, SocialAccountToken
 from app.models.instagram_connection import InstagramConnection
+from app.models.contact import Contact
+from app.models.conversation import Conversation
+from app.models.message import Message
 from app.models.webhook_event import WebhookEvent
 from app.models.plan import Feature, Plan, PlanFeature, Subscription
 
@@ -42,5 +45,8 @@ __all__ = [
     "SocialAccount",
     "SocialAccountToken",
     "InstagramConnection",
+    "Contact",
+    "Conversation",
+    "Message",
     "WebhookEvent",
 ]
